@@ -4,12 +4,13 @@
 
 ## Solution
 
-`vercel-ai-eval` is a TypeScript package providing **Golden Dataset Runner** and **LLM-as-judge** evaluation runners using Levenshtein distance and rubric-based scoring.
+`vercel-ai-eval` is a TypeScript package providing **Golden Dataset Runner**, **LLM-as-judge**, and **Structural assertions** evaluation runners using Levenshtein distance, rubric-based scoring, and JSON schema validation.
 
 ### Features
 
 - **Levenshtein Similarity Scoring**: Configurable thresholds (default: 0.85)
 - **LLM-as-Judge Evaluation**: Use another LLM to evaluate outputs with custom rubrics
+- **Structural Assertions**: Validate outputs against JSON schemas, regex patterns, and tool call shapes
 - **Batch Evaluation**: Evaluate multiple test cases with aggregated results
 - **Type-Safe**: Full TypeScript support
 - **Zero Dependencies**: Lightweight implementation
@@ -42,6 +43,27 @@ const results = await llmJudge(
 );
 ```
 
+## Structural Assertions
+
+Validate LLM outputs against structural rules like JSON schemas, regex patterns, and tool calls:
+
+```typescript
+import { structural } from "vercel-ai-eval";
+
+const results = await structural(
+  [{ id: "test-1", input: "Generate a JSON person object" }],
+  {
+    llm: async (input) => myLLM(input),
+    assertions: [
+      { type: "json-schema", schema: { type: "object", properties: { name: {}, age: {} } } },
+      { type: "regex", pattern: /\d+/ },
+      { type: "contains", substring: "name" },
+      { type: "tool-call-shape", toolName: "search" },
+    ],
+  }
+);
+```
+
 ## Development
 
 ```bash
@@ -53,7 +75,7 @@ npm run lint      # Type check
 
 ## Status
 
-Day 2 of 7. Shipped: goldenDataset, llmJudge. Coming next: structural assertions (Day 3), GitHub Actions PR comments (Day 4).
+Day 3 of 7. Shipped: goldenDataset, llmJudge, structural. Coming next: GitHub Actions PR comments (Day 4), examples+dogfood (Day 5), polish (Day 6), npm publish (Day 7).
 
 ## License
 
