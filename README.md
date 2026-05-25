@@ -73,9 +73,31 @@ npm run build     # Build package
 npm run lint      # Type check
 ```
 
+## GitHub Action
+
+The `eval-report` GitHub Action automatically posts PR comments comparing evaluation metrics between the head branch and base branch.
+
+**Usage:**
+```yaml
+- name: Post Eval Report
+  uses: ./.github/actions/eval-report
+  with:
+    results-path: dist/eval-results.json
+    base-ref: ${{ github.base_ref }}
+```
+
+**Features:**
+- Compares metrics: accuracy, F1, precision, recall, etc.
+- Shows deltas: improvements ✅, regressions ⚠️, new metrics 🆕
+- Upserts single comment (idempotent, no spam)
+- Full TypeScript + tested
+
+![Eval Report Comment](https://placeholder.example.com/eval-report-screenshot.png)
+
 ## Status
 
-Day 3 of 7. Shipped: goldenDataset, llmJudge, structural. Coming next: GitHub Actions PR comments (Day 4), examples+dogfood (Day 5), polish (Day 6), npm publish (Day 7).
+Day 4 of 7. Shipped: goldenDataset, llmJudge, structural, GitHub Action PR comments. Coming next: examples+dogfood (Day 5), polish (Day 6), npm publish (Day 7).
+
 
 ## License
 

@@ -1,0 +1,21 @@
+name: "Eval Report"
+description: "Posts PR comments with eval delta vs base branch"
+author: "Lakshyaraj"
+
+inputs:
+  results-path:
+    description: "Path to eval-results.json file"
+    required: false
+    default: "dist/eval-results.json"
+  base-ref:
+    description: "Base branch reference (typically github.base_ref)"
+    required: false
+    default: ${{ github.base_ref }}
+  token:
+    description: "GitHub token for posting comments"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "node20"
+  main: "action.js"
