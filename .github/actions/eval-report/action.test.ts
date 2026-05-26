@@ -16,13 +16,13 @@ vi.mock("@actions/github", () => ({
 }));
 
 import {
-  readHeadResults,
   computeDeltas,
   formatCommentBody,
   findOrCreateComment,
   type EvalMetrics,
   type MetricDelta,
-} from "./action";
+} from "./lib";
+import { readHeadResults } from "./action";
 
 describe("eval-report action", () => {
   beforeEach(() => {

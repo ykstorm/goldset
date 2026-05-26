@@ -2,10 +2,13 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import * as fs from "fs";
 import { execSync } from "child_process";
-
-export interface EvalMetrics {
-  metrics: Record<string, number>;
-}
+import {
+  computeDeltas,
+  formatCommentBody,
+  findOrCreateComment,
+  parseEvalResults,
+  type EvalMetrics,
+} from "./lib";
 
 export interface MetricDelta {
   metric: string;
@@ -14,6 +17,9 @@ export interface MetricDelta {
   delta: number | null;
   status: string;
 }
+
+// Export for backwards compatibility
+export { EvalMetrics } from "./lib";
 
 export async function getResultsFromRef(
   path: string,
@@ -30,7 +36,7 @@ export async function getResultsFromRef(
       stdio: ["pipe", "pipe", "ignore"],
     });
 
-    return JSON.parse(output);
+    return parseEvalResults(output);
   } catch (error) {
     core.info(`Could not fetch results from ${ref}: ${error}`);
     return null;
@@ -43,113 +49,11 @@ export function readHeadResults(path: string): EvalMetrics {
   }
 
   const content = fs.readFileSync(path, "utf-8");
-  try {
-    return JSON.parse(content);
-  } catch (error) {
-    throw new Error(`Invalid JSON in ${path}: ${error}`);
-  }
+  return parseEvalResults(content);
 }
 
-export function computeDeltas(
-  baseMetrics: EvalMetrics | null,
-  headMetrics: EvalMetrics
-): MetricDelta[] {
-  const deltas: MetricDelta[] = [];
-  const baseMap = baseMetrics?.metrics || {};
-  const headMap = headMetrics.metrics || {};
-
-  // Track all metrics from head
-  const allMetrics = new Set([...Object.keys(headMap), ...Object.keys(baseMap)]);
-
-  for (const metric of allMetrics) {
-    const baseValue = baseMap[metric];
-    const headValue = headMap[metric];
-
-    let delta: number | null = null;
-    let status = "🆕 new";
-
-    if (baseValue !== undefined && headValue !== undefined) {
-      delta = headValue - baseValue;
-      status = delta >= 0 ? "✅ pass" : "⚠️ regression";
-    } else if (baseValue === undefined && headValue !== undefined) {
-      status = "🆕 new";
-    } else if (baseValue !== undefined && headValue === undefined) {
-      status = "⚠️ regression";
-    }
-
-    deltas.push({
-      metric,
-      base: baseValue ?? null,
-      head: headValue ?? 0,
-      delta,
-      status,
-    });
-  }
-
-  return deltas.sort((a, b) => a.metric.localeCompare(b.metric));
-}
-
-export function formatCommentBody(deltas: MetricDelta[]): string {
-  const tableRows = deltas
-    .map((d) => {
-      const baseStr = d.base !== null ? d.base.toFixed(3) : "—";
-      const headStr = d.head.toFixed(3);
-      const deltaStr =
-        d.delta !== null
-          ? `${d.delta >= 0 ? "+" : ""}${d.delta.toFixed(3)}`
-          : "—";
-
-      return `| ${d.metric} | ${baseStr} | ${headStr} | ${deltaStr} | ${d.status} |`;
-    })
-    .join("\n");
-
-  return (
-    `<!-- vercel-ai-eval-report -->\n` +
-    `## 📊 Eval Report\n\n` +
-    `| Metric | Base | Head | Delta | Status |\n` +
-    `|--------|------|------|-------|--------|\n` +
-    `${tableRows}\n`
-  );
-}
-
-export async function findOrCreateComment(
-  octokit: ReturnType<typeof github.getOctokit>,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  body: string
-): Promise<void> {
-  const marker = "<!-- vercel-ai-eval-report -->";
-
-  // List existing comments
-  const comments = await octokit.rest.issues.listComments({
-    owner,
-    repo,
-    issue_number: prNumber,
-  });
-
-  const existing = comments.data.find((c) => c.body?.includes(marker));
-
-  if (existing) {
-    // Update existing comment
-    await octokit.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: existing.id,
-      body,
-    });
-    core.info(`Updated comment #${existing.id}`);
-  } else {
-    // Create new comment
-    const response = await octokit.rest.issues.createComment({
-      owner,
-      repo,
-      issue_number: prNumber,
-      body,
-    });
-    core.info(`Created comment #${response.data.id}`);
-  }
-}
+// Re-export pure functions for backwards compatibility
+export { computeDeltas, formatCommentBody, findOrCreateComment };
 
 async function run(): Promise<void> {
   try {
@@ -194,4 +98,9 @@ async function run(): Promise<void> {
   }
 }
 
-run();
+// Only run if this is the main module (not imported for tests)
+if (require.main === module) {
+  run().catch(err => {
+    core.setFailed(err.message);
+  });
+}
