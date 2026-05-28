@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/cli.ts'],
     format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
@@ -11,7 +11,7 @@ export default defineConfig([
     outDir: 'dist',
   },
   {
-    entry: { 'action': '.github/actions/eval-report/action.ts' },
+    entry: { action: '.github/actions/eval-report/action.ts' },
     format: ['cjs'],
     dts: false,
     splitting: false,
