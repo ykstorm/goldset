@@ -4,6 +4,7 @@ npm-debug.log
 yarn-error.log
 
 # Build output
+!dist/action.js
 dist/
 build/
 

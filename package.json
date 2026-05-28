@@ -1,11 +1,14 @@
 {
-  "name": "vercel-ai-eval",
+  "name": "@ykstorm/goldset",
   "version": "0.1.0",
-  "description": "A TypeScript package for evaluating AI outputs against golden datasets",
+  "description": "Lock your AI app's behavior. Golden datasets + LLM-as-judge + structural assertions in CI.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "goldset": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
@@ -13,22 +16,42 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch"
   },
-  "keywords": ["ai", "evaluation", "testing", "golden-dataset"],
+  "keywords": [
+    "ai",
+    "llm",
+    "evaluation",
+    "testing",
+    "golden-dataset",
+    "llm-as-judge",
+    "structural-assertions",
+    "ci",
+    "github-action"
+  ],
+  "homepage": "https://goldset.lakshyaraj.dev",
+  "repository": "github:ykstorm/goldset",
   "author": "Lakshyaraj <raolakshyaraj@gmail.com>",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^6.0.0",
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "@vitest/coverage-v8": "^1.6.1",
+    "eslint": "^9.39.4",
     "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^1.0.0"
-  },
-  "dependencies": {}
+  }
 }
