@@ -1,0 +1,23 @@
+name: Goldset
+description: "Run AI evals, post PR comments, block regressions"
+
+inputs:
+  eval-file:
+    description: "Path to eval file"
+    required: true
+  fail-on-regression:
+    description: "Fail workflow if score drops"
+    required: false
+    default: "false"
+  comment-on-pr:
+    description: "Post results as PR comment"
+    required: false
+    default: "true"
+
+runs:
+  using: node20
+  main: .github/actions/eval-report/action.cjs
+
+branding:
+  icon: "check-circle"
+  color: "green"
