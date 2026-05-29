@@ -13,13 +13,7 @@ Docs + live playground: **[goldset.lakshyaraj.dev](https://goldset.lakshyaraj.de
 
 ## How this started
 
-I shipped a model bump on a quiet Tuesday — `gpt-4o-2026-03-14` to `gpt-4o-2026-04-01`. Two clicks in the OpenAI dashboard. Nothing else changed: same system prompt, same temperature, same retrieval layer.
-
-Two weeks later, a customer pointed out our chatbot had stopped replying in Hindi. Buyers typing "Bopal mein 2BHK?" were getting paragraphs of polite English back. The new model version had a stronger English bias in the underlying weights. Nothing we could see from the outside — the API was identical, the prompts were identical.
-
-We had unit tests for our code. We had no tests for what the LLM did. Our test suite couldn't tell us that the chatbot's behavior had changed, because we'd never written down what the behavior was supposed to be.
-
-Goldset is the AI behavior-locking layer I built after that incident.
+Your AI app's behavior drifts silently when you bump models or change prompts. Without behavior-locking tests, you find out from a customer. Goldset is evals as code — three runners (golden dataset, LLM-as-judge, structural), GitHub Action that posts the delta on PRs.
 
 ---
 
