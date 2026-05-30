@@ -37,7 +37,7 @@
     "ci",
     "github-action"
   ],
-  "homepage": "https://goldset.lakshyaraj.dev",
+  "homepage": "https://github.com/ykstorm/goldset",
   "repository": "github:ykstorm/goldset",
   "author": "Lakshyaraj <raolakshyaraj@gmail.com>",
   "license": "Apache-2.0",
