@@ -1,6 +1,6 @@
 {
   "name": "@ykstorm/goldset",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lock your AI app's behavior. Golden datasets + LLM-as-judge + structural assertions in CI.",
   "type": "module",
   "main": "./dist/index.js",
