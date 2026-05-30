@@ -2,12 +2,12 @@
 
 **Lock your AI app's behavior. Golden datasets + LLM-as-judge + structural assertions, as a GitHub Action.**
 
-[![npm](https://img.shields.io/npm/v/@ykstorm/goldset?label=npm)](https://npmjs.com/package/@ykstorm/goldset)
+![npm](https://img.shields.io/npm/v/@ykstormsorg/goldset.svg)
 [![CI](https://github.com/ykstorm/goldset/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/goldset/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-goldset.lakshyaraj.dev-1a73e8)](https://goldset.lakshyaraj.dev)
+[![Docs](https://img.shields.io/badge/docs-GitHub-1a73e8)](https://github.com/ykstorm/goldset#readme)
 
-Docs + live playground: **[goldset.lakshyaraj.dev](https://goldset.lakshyaraj.dev)**
+Docs: **[github.com/ykstorm/goldset](https://github.com/ykstorm/goldset#readme)**
 
 ---
 
