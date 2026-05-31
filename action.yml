@@ -16,7 +16,7 @@ inputs:
 
 runs:
   using: node20
-  main: .github/actions/eval-report/action.cjs
+  main: dist/action.cjs
 
 branding:
   icon: "check-circle"

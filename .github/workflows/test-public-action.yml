@@ -1,0 +1,34 @@
+name: 'Test Public Action'
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-action:
+    name: Run Goldset action against fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Goldset action (golden runner)
+        id: goldset
+        uses: ./
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          eval-file: ./fixtures/eval-test.yaml
+          fail-on-regression: false
+
+      - name: Verify outputs
+        run: |
+          echo "passed=${{ steps.goldset.outputs.passed }}"
+          echo "failed=${{ steps.goldset.outputs.failed }}"
+          echo "total=${{ steps.goldset.outputs.total }}"
+          echo "all-passed=${{ steps.goldset.outputs.all-passed }}"
+          echo "---"
+          echo "Outputs verified. Self-test complete."

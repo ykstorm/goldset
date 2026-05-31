@@ -1,0 +1,17 @@
+runner: golden
+cases:
+  - id: refund-q
+    input: How do I get a refund?
+    expectedOutput: Email support@example.com for refunds.
+    description: FAQ — refund policy
+  - id: ship-q
+    input: When does my order ship?
+    expectedOutput: Check your order status page.
+    description: FAQ — shipping status
+  - id: hello
+    input: Hello!
+    expectedOutput: Hello! How can I help you today?
+    description: Greeting
+
+config:
+  threshold: 0.7
