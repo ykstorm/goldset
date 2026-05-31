@@ -19,4 +19,13 @@ export default defineConfig([
     clean: false,
     outDir: '.github/actions/eval-report',
   },
+  {
+    entry: { action: 'action/index.ts' },
+    format: ['cjs'],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    outDir: 'dist',
+  },
 ]);
