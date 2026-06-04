@@ -42,7 +42,7 @@
   "author": "Lakshyaraj <raolakshyaraj@gmail.com>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@actions/core": "^1.10.0",
+    "@actions/core": "^3.0.1",
     "@actions/github": "^6.0.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
