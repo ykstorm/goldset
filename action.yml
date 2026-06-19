@@ -1,18 +1,39 @@
 name: Goldset
-description: "Run AI evals, post PR comments, block regressions"
+description: "Run AI evaluation suites (golden datasets, LLM-as-judge, structural assertions), post a PR delta comment, and block the merge on regression."
 
 inputs:
-  eval-file:
-    description: "Path to eval file"
-    required: true
-  fail-on-regression:
-    description: "Fail workflow if score drops"
+  eval-dir:
+    description: "Directory containing *.eval.ts files"
     required: false
-    default: "false"
-  comment-on-pr:
-    description: "Post results as PR comment"
+    default: "evals"
+  judge-provider:
+    description: "Provider for LLM judge (openai | anthropic | none). When set, the matching API key already on the runner env is exposed to your eval as GOLDSET_JUDGE_PROVIDER."
+    required: false
+    default: "none"
+  fail-on-regression:
+    description: "Fail the action if any eval regresses vs the base branch's results"
     required: false
     default: "true"
+  comment-on-pr:
+    description: "Post (or update) a results + delta comment on the pull request"
+    required: false
+    default: "true"
+  github-token:
+    description: "Token used to post the PR comment (falls back to GITHUB_TOKEN env)"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  results-path:
+    description: "Absolute path to the JSON results file (goldset-results.json)"
+  passed:
+    description: "Number of eval files that passed"
+  failed:
+    description: "Number of eval files that failed"
+  total:
+    description: "Total number of eval files run"
+  all-passed:
+    description: "'true' if every eval file passed"
 
 runs:
   using: node20

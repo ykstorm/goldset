@@ -1,162 +1,151 @@
 /**
- * Goldset public GitHub Action
- * Wires the library runners to GitHub Actions inputs/outputs + summary.
+ * Goldset public GitHub Action entrypoint.
+ *
+ * Runs the consumer's `*.eval.ts` suite (each composes Goldset's runners
+ * against the consumer's own LLM + judge), collects results to
+ * `goldset-results.json`, posts/updates a PR comment with a results table and a
+ * delta-vs-base section, and exits non-zero when an eval fails (or regresses)
+ * so the merge is gated.
  */
-
 import * as core from '@actions/core';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as yaml from 'js-yaml';
-import { GoldenDatasetRunner } from '../src/runners/golden';
-import { llmJudge } from '../src/runners/judge';
-import { structural } from '../src/runners/structural';
-import type {
-  GoldenTestCase,
-  GoldenDatasetConfig,
-  LLMJudgeCase,
-  LLMJudgeOptions,
-  StructuralCase,
-  StructuralOptions,
-  Assertion,
-} from '../src/types';
+import * as github from '@actions/github';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { runEvals } from './run-evals';
+import {
+  buildCommentBody,
+  postComment,
+  type EvalFileResult,
+  type CommentApi,
+} from './post-comment';
 
-// ─── YAML eval file schema ───────────────────────────────────────────────────
+const RESULTS_PATH = 'goldset-results.json';
 
-interface EvalFile {
-  runner: 'golden' | 'judge' | 'structural';
-  cases: Record<string, unknown>[];
-  config?: Record<string, unknown>;
+type JudgeProvider = 'openai' | 'anthropic' | 'none';
+
+function normalizeProvider(v: string): JudgeProvider {
+  const p = v.trim().toLowerCase();
+  return p === 'openai' || p === 'anthropic' ? p : 'none';
 }
 
-function loadEvalFile(filePath: string): EvalFile {
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
-  if (!fs.existsSync(abs)) throw new Error(`Eval file not found: ${abs}`);
-  const raw = fs.readFileSync(abs, 'utf-8');
-  return yaml.load(raw) as EvalFile;
+/** Fetch the base branch's goldset-results.json via the contents API (best effort). */
+async function fetchBaseResults(
+  octokit: ReturnType<typeof github.getOctokit>,
+  owner: string,
+  repo: string,
+  ref: string
+): Promise<EvalFileResult[] | undefined> {
+  try {
+    const res = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: RESULTS_PATH,
+      ref,
+    });
+    const data = res.data as { content?: string; encoding?: string };
+    if (!data.content) return undefined;
+    const decoded = Buffer.from(data.content, (data.encoding as BufferEncoding) ?? 'base64').toString('utf-8');
+    return JSON.parse(decoded) as EvalFileResult[];
+  } catch {
+    return undefined;
+  }
 }
-
-// ─── LLM stub for golden/structural (no API key needed) ─────────────────────
-
-async function stubLlm(input: string): Promise<string> {
-  // Returns a deterministic placeholder — replace with real LLM in production
-  return `[stub response for: ${input}]`;
-}
-
-// ─── Run ───────────────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
-  const evalFile = core.getInput('eval-file', { required: true });
-  const failOnRegression = core.getBooleanInput('fail-on-regression');
-  const commentOnPR = core.getBooleanInput('comment-on-pr');
+  const evalDir = core.getInput('eval-dir') || 'evals';
+  const judgeProvider = normalizeProvider(core.getInput('judge-provider') || 'none');
+  const failOnRegression = (core.getInput('fail-on-regression') || 'true') !== 'false';
+  const commentOnPR =
+    (core.getInput('comment-on-pr') || 'true') !== 'false';
 
-  core.info(`[goldset] Loading eval file: ${evalFile}`);
-  const evalData = loadEvalFile(evalFile);
+  core.info(`[goldset] eval-dir=${evalDir} judge-provider=${judgeProvider}`);
 
-  let passed = 0;
-  let failed = 0;
-  let total = 0;
-  const rows: { data: string; header?: boolean }[][] = [
-    [{ data: 'case', header: true }, { data: 'status', header: true }, { data: 'detail', header: true }],
-  ];
+  const results = await runEvals({ evalDir, judgeProvider });
 
-  if (evalData.runner === 'golden') {
-    const cases = evalData.cases as GoldenTestCase[];
-    const config: GoldenDatasetConfig = {
-      threshold: (evalData.config?.threshold as number) ?? 0.85,
-    };
-    const runner = new GoldenDatasetRunner(config);
-    total = cases.length;
-
-    for (const tc of cases) {
-      const actual = await stubLlm(tc.input);
-      const result = runner.evaluate(tc, actual);
-      if (result.passed) passed++;
-      else failed++;
-      rows.push([
-        { data: tc.id },
-        { data: result.passed ? '✅ pass' : '❌ fail' },
-        { data: `similarity=${result.similarity}` },
-      ]);
-    }
-  } else if (evalData.runner === 'judge') {
-    const cases = evalData.cases as LLMJudgeCase[];
-    const judgeModel = core.getInput('judge-model') || 'gpt-4o-mini';
-    const rubric = (evalData.config?.rubric as string) || 'Score 5 if helpful, 0 if not.';
-    const passThreshold = (evalData.config?.passThreshold as number) ?? 3;
-
-    const opts: LLMJudgeOptions = {
-      llm: stubLlm,
-      judge: async (prompt: string) => {
-        // In production, call the judge LLM here
-        // For now, return a passing score
-        return JSON.stringify({ score: passThreshold, reason: 'stub judge' });
-      },
-      rubric,
-      passThreshold,
-    };
-
-    const results = await llmJudge(cases, opts);
-    total = results.length;
-    for (const r of results) {
-      if (r.passed) passed++;
-      else failed++;
-      rows.push([
-        { data: r.testCaseId },
-        { data: r.passed ? '✅ pass' : '❌ fail' },
-        { data: `score=${Math.round(r.similarity * 5)}/5` },
-      ]);
-    }
-  } else if (evalData.runner === 'structural') {
-    const cases = evalData.cases as StructuralCase[];
-    const assertions = (evalData.config?.assertions as Assertion[]) ?? [];
-
-    const opts: StructuralOptions = {
-      llm: stubLlm,
-      assertions,
-    };
-
-    const results = await structural(cases, opts);
-    total = results.length;
-    for (const r of results) {
-      if (r.passed) passed++;
-      else failed++;
-      rows.push([
-        { data: r.testCaseId },
-        { data: r.passed ? '✅ pass' : '❌ fail' },
-        { data: r.actualOutput.slice(0, 60) },
-      ]);
-    }
+  if (results.length === 0) {
+    core.warning(`[goldset] no *.eval.ts files found under ${evalDir}/`);
   }
 
-  // ── Outputs ──────────────────────────────────────────────────────────────
+  fs.writeFileSync(RESULTS_PATH, JSON.stringify(results, null, 2));
+  core.setOutput('results-path', path.resolve(RESULTS_PATH));
+
+  const total = results.length;
+  const passed = results.filter((r) => r.passed).length;
+  const failed = total - passed;
   core.setOutput('passed', String(passed));
   core.setOutput('failed', String(failed));
   core.setOutput('total', String(total));
-  core.setOutput('all-passed', passed === total ? 'true' : 'false');
+  core.setOutput('all-passed', failed === 0 ? 'true' : 'false');
 
-  // ── Summary ──────────────────────────────────────────────────────────────
-  await core.summary
-    .addHeading('Goldset Eval Results')
-    .addTable(rows)
-    .addSeparator()
-    .addTable([
-      [{ data: 'metric', header: true }, { data: 'value', header: true }],
-      ['total', String(total)],
-      ['passed', String(passed)],
-      ['failed', String(failed)],
-      ['pass rate', total > 0 ? `${Math.round((passed / total) * 100)}%` : 'N/A'],
-    ])
-    .write();
+  // ── PR comment (table + delta vs base, update-or-create) ───────────────────
+  const token = process.env.GITHUB_TOKEN ?? core.getInput('github-token');
+  const pr = github.context.payload.pull_request;
+  let regressed = false;
 
-  core.info(`[goldset] ${passed}/${total} cases passed`);
+  if (commentOnPR && token && pr) {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    const baseRef = (pr.base as { ref?: string } | undefined)?.ref;
+    const baseResults = baseRef
+      ? await fetchBaseResults(octokit, owner, repo, baseRef)
+      : undefined;
 
-  if (failOnRegression && failed > 0) {
-    core.setFailed(`Goldset regression detected: ${failed}/${total} cases failed`);
+    if (baseResults) {
+      const baseByFile = new Map(baseResults.map((b) => [b.file, b]));
+      regressed = results.some((r) => {
+        const b = baseByFile.get(r.file);
+        return b && b.passed && !r.passed;
+      });
+    }
+
+    const body = buildCommentBody(results, baseResults);
+    const api: CommentApi = {
+      listComments: (a) => octokit.rest.issues.listComments(a),
+      createComment: (a) => octokit.rest.issues.createComment(a),
+      updateComment: (a) => octokit.rest.issues.updateComment(a),
+    };
+    const action = await postComment(
+      api,
+      { owner, repo, issueNumber: pr.number },
+      body
+    );
+    core.info(`[goldset] PR comment ${action}`);
+  } else if (commentOnPR && !pr) {
+    core.info('[goldset] not a pull_request event — skipping PR comment');
+  } else if (commentOnPR && !token) {
+    core.warning('[goldset] GITHUB_TOKEN not available — skipping PR comment');
+  }
+
+  // ── Summary ────────────────────────────────────────────────────────────────
+  const rows: { data: string; header?: boolean }[][] = [
+    [
+      { data: 'eval', header: true },
+      { data: 'status', header: true },
+      { data: 'details', header: true },
+    ],
+    ...results.map((r) => [
+      { data: r.file },
+      { data: r.passed ? '✅ pass' : '❌ fail' },
+      { data: r.summary ?? r.error ?? '' },
+    ]),
+  ];
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await core.summary.addHeading('Goldset Eval Results').addTable(rows).write();
+  }
+
+  core.info(`[goldset] ${passed}/${total} eval files passed`);
+
+  if (failed > 0) {
+    core.setFailed(`Goldset: ${failed}/${total} eval file(s) failed`);
+    process.exit(1);
+  }
+  if (failOnRegression && regressed) {
+    core.setFailed('Goldset: regression detected vs base branch');
     process.exit(1);
   }
 }
 
-run().catch((err) => {
-  core.setFailed(err.message);
+run().catch((err: unknown) => {
+  core.setFailed(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

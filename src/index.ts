@@ -1,19 +1,46 @@
-export { GoldenDatasetRunner, calculateSimilarity, levenshteinDistance } from './runners/golden';
-export { llmJudge } from './runners/judge';
-export { structural } from './runners/structural';
+// ─── Documented functional API (README + docs/API.md) ───────────────────────
+export {
+  goldenDataset,
+  llmJudge,
+  structural,
+  runEval,
+  toEvalResult,
+} from './runners/api';
+export type {
+  LLMFn,
+  JudgeFn,
+  GoldenCase,
+  GoldenConfig,
+  GoldenCaseResult,
+  GoldenResult,
+  JudgeCase,
+  JudgeConfig,
+  JudgeCaseResult,
+  JudgeResult,
+  StructuralCase,
+  StructuralConfig,
+  StructuralCaseResult,
+  StructuralResult,
+  EvalResult,
+} from './runners/api';
+
+// ─── Structural assertion vocabulary ─────────────────────────────────────────
+export { applyAssertions } from './runners/structural';
+export type {
+  Assertion,
+  AssertionType,
+  AssertionFailure,
+} from './runners/structural';
+
+// ─── Lower-level class API (golden dataset) ──────────────────────────────────
+export {
+  GoldenDatasetRunner,
+  calculateSimilarity,
+  levenshteinDistance,
+} from './runners/golden';
 export type {
   GoldenDatasetConfig,
   GoldenTestCase,
   EvaluationResult,
   EvaluationSummary,
 } from './types';
-export type {
-  LLMJudgeOptions,
-  LLMJudgeCase,
-} from './runners/judge';
-export type {
-  StructuralOptions,
-  StructuralCase,
-  Assertion,
-  AssertionType,
-} from './runners/structural';
