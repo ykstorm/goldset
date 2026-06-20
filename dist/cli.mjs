@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-"use strict";
 
 // src/cli.ts
 async function main() {
@@ -10,3 +9,4 @@ main().catch((err) => {
   console.error("[goldset] Fatal:", err);
   process.exit(1);
 });
+//# sourceMappingURL=cli.mjs.map

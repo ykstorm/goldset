@@ -59,43 +59,44 @@ npm install tsx   # for running .eval.ts files directly
 
 ```ts
 // evals/customer-support.eval.ts
-import { goldenDataset, llmJudge, structural } from '@ykstormsorg/goldset'
+import { goldenDataset, llmJudge, structural, runEval } from '@ykstormsorg/goldset'
 import { myLLM, myJudge } from '../src/llm'
 
-const goldenCases = [
-  { id: 'refund-q', input: 'How do I get a refund?', expected: 'Email support@...' },
-  { id: 'shipping-q', input: 'Where is my order?', expected: 'Track at track.example.com/...' },
-]
-
-const judgeCases = [
-  { id: 'hindi-q', input: 'Bopal mein 2BHK?', expected: 'Hindi response' },
-  { id: 'french-q', input: 'Comment ça marche?', expected: 'French response' },
-]
-
-const structuralCases = [
-  { id: 'tool-q', input: 'lookup order #42' },
-]
-
-// Run all three
-await goldenDataset(goldenCases, {
-  llm: myLLM,
-  threshold: 0.85,
-})
-
-await llmJudge(judgeCases, {
-  llm: myLLM,
-  judge: myJudge,
-  rubric: 'Score 5 if response is in the same language as the input. 0 if not.',
-  passThreshold: 3,
-})
-
-await structural(structuralCases, {
-  llm: myLLM,
-  assertions: [
-    { type: 'json-schema', schema: { type: 'object', properties: { orderId: { type: 'string' } } } },
-    { type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 },
+const golden = await goldenDataset(
+  [
+    { id: 'refund-q', input: 'How do I get a refund?', expected: 'Email support@...' },
+    { id: 'shipping-q', input: 'Where is my order?', expected: 'Track at track.example.com/...' },
   ],
-})
+  { llm: myLLM, threshold: 0.85 }
+)
+
+const judged = await llmJudge(
+  [
+    { id: 'hindi-q', input: 'Bopal mein 2BHK?', expected: 'Hindi response' },
+    { id: 'french-q', input: 'Comment ça marche?', expected: 'French response' },
+  ],
+  {
+    llm: myLLM,
+    judge: myJudge,
+    rubric: 'Score 5 if response is in the same language as the input. 0 if not.',
+    passThreshold: 3,
+  }
+)
+
+const shape = await structural(
+  [{ id: 'tool-q', input: 'lookup order #42' }],
+  {
+    llm: myLLM,
+    assertions: [
+      { type: 'json-schema', schema: { type: 'object', properties: { orderId: { type: 'string' } } } },
+      { type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 },
+    ],
+  }
+)
+
+// runEval prints a human summary (or JSON with `--output json`, as the
+// GitHub Action does) and exits non-zero if any runner failed.
+await runEval(golden, judged, shape)
 ```
 
 ### 2. Run locally
@@ -106,8 +107,8 @@ npx tsx evals/customer-support.eval.ts
 
 Output:
 ```
-✓ goldenDataset: 2/2 passed (avg similarity 0.91)
-✓ llmJudge: 2/2 passed (avg score 4.5/5)
+✓ goldenDataset: 2/2 passed
+✓ llmJudge: 2/2 passed
 ✓ structural: 1/1 passed
 ```
 
@@ -118,3 +119,61 @@ Output:
 name: Goldset Eval
 
 on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - uses: ykstorm/goldset@v1
+        with:
+          eval-dir: evals
+          judge-provider: none   # or openai | anthropic
+          fail-on-regression: true
+          comment-on-pr: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # if judge-provider: openai
+```
+
+The Action runs every `*.eval.ts` under `eval-dir` with `npx tsx <file> --output json`,
+writes a combined `goldset-results.json`, posts (or updates) a PR comment with a
+results table and a **delta-vs-base** section, and **fails the check** if any eval
+fails or regresses against the base branch — gating the merge.
+
+## GitHub Action
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `eval-dir` | `evals` | Directory containing `*.eval.ts` files |
+| `judge-provider` | `none` | `openai` \| `anthropic` \| `none`. Exposes the matching key (already on the runner env) to your eval as `GOLDSET_JUDGE_PROVIDER` |
+| `fail-on-regression` | `true` | Fail the check if any eval regresses vs the base branch |
+| `comment-on-pr` | `true` | Post/update a results + delta comment on the PR |
+
+Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
+
+---
+
+## Three runners
+
+| Runner | Function | Catches |
+|--------|----------|---------|
+| Golden dataset | `goldenDataset(cases, { llm, threshold })` | Output drifted from the canonical answer (Levenshtein similarity vs a threshold) |
+| LLM-as-judge | `llmJudge(cases, { llm, judge, rubric })` | Behavior regression on open-ended outputs (a second LLM scores against a rubric) |
+| Structural | `structural(cases, { llm, assertions })` | Output shape broke (JSON schema, regex, substring, tool-call shape) |
+
+See the full [API reference](docs/API.md).
+
+## License
+
+Apache-2.0
+
