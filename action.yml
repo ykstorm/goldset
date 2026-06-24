@@ -1,4 +1,5 @@
 name: Goldset
+author: "Lakshyaraj Singh Rao"
 description: "Run AI evaluation suites (golden datasets, LLM-as-judge, structural assertions), post a PR delta comment, and block the merge on regression."
 
 inputs:
