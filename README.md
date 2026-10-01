@@ -160,6 +160,9 @@ jobs:
           # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # if judge-provider: openai
 ```
 
+For a supply-chain-hardened pin, reference the Action by commit SHA rather than a
+moving tag, for example `uses: ykstorm/goldset@<sha>  # v1`.
+
 The Action runs every `*.eval.ts` under `eval-dir` with `npx tsx <file> --output json`,
 writes a combined `goldset-results.json`, posts (or updates) a PR comment with a
 results table and a **delta-vs-base** section, and **fails the check** if any eval

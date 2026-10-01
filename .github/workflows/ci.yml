@@ -9,6 +9,9 @@ on:
   schedule:
     - cron: '0 6 * * 1' # Mondays 06:00 UTC — catch dep-bump regressions
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,8 +27,8 @@ jobs:
       matrix:
         node: [20, 22]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: 'npm'
@@ -46,10 +49,25 @@ jobs:
       - run: npm run build
 
       - if: matrix.node == 20
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
           path: dist/
+
+  # Fails if the committed dist/ is not what `npm run build` produces.
+  dist-check:
+    name: Committed dist/ is up to date
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm run build
+      - name: Verify dist/ matches the build
+        run: git diff --exit-code -- dist/
 
   # Dogfood — runs the built Goldset Action against Goldset's own evals/ suite
   # on a fresh checkout. If Goldset can't pass its own evals, this fails.
@@ -62,8 +80,8 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: '20', cache: 'npm' }
       - run: npm ci
       - run: npm run build
@@ -82,13 +100,13 @@ jobs:
     name: Publish to npm
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    needs: [test, dogfood]
+    needs: [test, dist-check, dogfood]
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
