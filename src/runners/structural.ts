@@ -57,21 +57,71 @@ function validateJsonSchema(
   return null;
 }
 
+/** Cap on the text a regex is tested against, to bound matching work. */
+const MAX_REGEX_INPUT = 100_000;
+
 /**
- * Validates output matches regex pattern.
+ * Flag a regex at risk of catastrophic backtracking: an unbounded quantifier
+ * (`*`, `+`, `{n,}`) applied to a group whose body already contains an unbounded
+ * quantifier — the `(a+)+` family. A cheap star-height walk, not a full parser,
+ * but it rejects the exponential shapes before they ever run.
+ */
+function isReDoSRisk(source: string): boolean {
+  const groups: { bodyHasQuant: boolean }[] = [];
+  const stack: number[] = [];
+  let inClass = false;
+  const unboundedAt = (i: number): boolean => {
+    const c = source[i];
+    if (c === '*' || c === '+') return true;
+    if (c === '{') return /^\{\d*,\}/.test(source.slice(i));
+    return false;
+  };
+  for (let i = 0; i < source.length; i += 1) {
+    const c = source[i];
+    if (c === '\\') { i += 1; continue; } // skip the escaped char
+    if (inClass) { if (c === ']') inClass = false; continue; }
+    if (c === '[') { inClass = true; continue; }
+    if (c === '(') { stack.push(groups.length); groups.push({ bodyHasQuant: false }); continue; }
+    if (c === ')') {
+      const idx = stack.pop();
+      if (idx === undefined) continue;
+      const quantified = unboundedAt(i + 1);
+      if (quantified && groups[idx].bodyHasQuant) return true;
+      if ((groups[idx].bodyHasQuant || quantified) && stack.length) {
+        groups[stack[stack.length - 1]].bodyHasQuant = true;
+      }
+      continue;
+    }
+    if (unboundedAt(i) && stack.length) {
+      groups[stack[stack.length - 1]].bodyHasQuant = true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Validates output matches regex pattern. The pattern is screened for
+ * catastrophic-backtracking shapes, the global/sticky flags are dropped (so the
+ * test is stateless), and the tested text is length-capped.
  */
 function validateRegex(
   output: string,
   pattern: string | RegExp,
   flags?: string
 ): AssertionFailure | null {
+  const source = typeof pattern === 'string' ? pattern : pattern.source;
+  if (isReDoSRisk(source)) {
+    return { type: 'regex', reason: `unsafe regex (nested quantifier): ${source}` };
+  }
   let regex: RegExp;
   try {
-    regex = typeof pattern === 'string' ? new RegExp(pattern, flags) : pattern;
+    const rawFlags = typeof pattern === 'string' ? flags ?? '' : pattern.flags;
+    regex = new RegExp(source, rawFlags.replace(/[gy]/g, ''));
   } catch {
-    return { type: 'regex', reason: `invalid regex: ${String(pattern)}` };
+    return { type: 'regex', reason: `invalid regex: ${source}` };
   }
-  return regex.test(output)
+  const text = output.length > MAX_REGEX_INPUT ? output.slice(0, MAX_REGEX_INPUT) : output;
+  return regex.test(text)
     ? null
     : { type: 'regex', reason: `output did not match ${String(regex)}` };
 }

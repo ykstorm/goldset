@@ -81,6 +81,14 @@ describe('GoldenDatasetRunner', () => {
     expect(distance).toBe(3);
   });
 
+  it('bounds work on very large inputs (length cap, two-row DP)', () => {
+    const t0 = performance.now();
+    const sim = calculateSimilarity('a'.repeat(500_000), 'a'.repeat(500_000));
+    const elapsed = performance.now() - t0;
+    expect(sim).toBe(1);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   it('should throw error on mismatched input/output lengths', () => {
     const runner = new GoldenDatasetRunner();
     const testCases: GoldenTestCase[] = [

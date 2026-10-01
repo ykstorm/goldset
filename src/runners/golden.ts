@@ -5,33 +5,36 @@ import type {
   EvaluationSummary,
 } from '../types';
 
+/** Cap on each string's length, to bound the O(m*n) distance computation. */
+const MAX_LEVENSHTEIN_LEN = 20_000;
+
 /**
- * Calculate Levenshtein distance between two strings
+ * Calculate Levenshtein distance between two strings using a two-row dynamic
+ * program (O(min(m,n)) memory). Inputs longer than MAX_LEVENSHTEIN_LEN are
+ * truncated first so a pathological pair can't blow up time or memory.
  */
 function levenshteinDistance(str1: string, str2: string): number {
-  const track = Array(str2.length + 1)
-    .fill(null)
-    .map(() => Array(str1.length + 1).fill(0));
+  const a = str1.length > MAX_LEVENSHTEIN_LEN ? str1.slice(0, MAX_LEVENSHTEIN_LEN) : str1;
+  const b = str2.length > MAX_LEVENSHTEIN_LEN ? str2.slice(0, MAX_LEVENSHTEIN_LEN) : str2;
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
 
-  for (let i = 0; i <= str1.length; i += 1) {
-    track[0][i] = i;
-  }
-  for (let j = 0; j <= str2.length; j += 1) {
-    track[j][0] = j;
-  }
+  let prev = new Array<number>(n + 1);
+  let curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j += 1) prev[j] = j;
 
-  for (let j = 1; j <= str2.length; j += 1) {
-    for (let i = 1; i <= str1.length; i += 1) {
-      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      track[j][i] = Math.min(
-        track[j][i - 1] + 1,
-        track[j - 1][i] + 1,
-        track[j - 1][i - 1] + indicator
-      );
+  for (let i = 1; i <= m; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
     }
+    [prev, curr] = [curr, prev];
   }
-
-  return track[str2.length][str1.length];
+  return prev[n];
 }
 
 /**
