@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseEvalOutput, judgeEnv } from '../action/run-evals';
+import * as path from 'node:path';
+import {
+  parseEvalOutput,
+  buildChildEnv,
+  resolveEvalDir,
+} from '../action/run-evals';
 
 describe('parseEvalOutput', () => {
   it('parses a passing eval JSON blob into a result row', () => {
@@ -40,17 +45,78 @@ describe('parseEvalOutput', () => {
     expect(r.passed).toBe(false);
     expect(r.error).toContain('exited 1');
   });
-});
 
-describe('judgeEnv', () => {
-  it('sets GOLDSET_JUDGE_PROVIDER for openai/anthropic and not for none', () => {
-    expect(judgeEnv('openai', {}).GOLDSET_JUDGE_PROVIDER).toBe('openai');
-    expect(judgeEnv('anthropic', {}).GOLDSET_JUDGE_PROVIDER).toBe('anthropic');
-    expect(judgeEnv('none', {}).GOLDSET_JUDGE_PROVIDER).toBeUndefined();
+  it('truncates the error row to 200 characters', () => {
+    const r = parseEvalOutput('bad.eval.ts', 'x'.repeat(5000), 0);
+    expect(r.passed).toBe(false);
+    expect((r.error ?? '').length).toBeLessThanOrEqual(200);
   });
 
-  it('preserves existing env (e.g. forwarded API keys)', () => {
-    const env = judgeEnv('openai', { OPENAI_API_KEY: 'sk-test' });
-    expect(env.OPENAI_API_KEY).toBe('sk-test');
+  it('reports a timeout row when the eval was killed', () => {
+    const r = parseEvalOutput('slow.eval.ts', '', 1, true);
+    expect(r.passed).toBe(false);
+    expect(r.error).toBe('eval timed out');
+  });
+
+  it('drops runner names that are not on the allowlist', () => {
+    const json = JSON.stringify({
+      passed: true,
+      runners: {
+        goldenDataset: { summary: { passed: 1, failed: 0 } },
+        '<script>evil': { summary: { passed: 9, failed: 0 } },
+      },
+    });
+    const r = parseEvalOutput('x.eval.ts', json, 0);
+    expect(r.runners?.goldenDataset).toBeDefined();
+    expect(r.summary).not.toContain('script');
+    expect(r.summary).not.toContain('evil');
+  });
+});
+
+describe('buildChildEnv', () => {
+  it('sets GOLDSET_JUDGE_PROVIDER for openai/anthropic and not for none', () => {
+    expect(buildChildEnv('openai', [], {}).GOLDSET_JUDGE_PROVIDER).toBe('openai');
+    expect(buildChildEnv('anthropic', [], {}).GOLDSET_JUDGE_PROVIDER).toBe('anthropic');
+    expect(buildChildEnv('none', [], {}).GOLDSET_JUDGE_PROVIDER).toBeUndefined();
+  });
+
+  it('forwards only the selected provider key', () => {
+    const base = { OPENAI_API_KEY: 'sk-openai', ANTHROPIC_API_KEY: 'sk-anthropic' };
+    const env = buildChildEnv('openai', [], base);
+    expect(env.OPENAI_API_KEY).toBe('sk-openai');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('drops secrets not on the allowlist', () => {
+    const env = buildChildEnv('none', [], { AWS_SECRET_ACCESS_KEY: 'super-secret', PATH: '/usr/bin' });
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.PATH).toBe('/usr/bin');
+  });
+
+  it('forwards GOLDSET_* config and consumer pass-env names', () => {
+    const base = { GOLDSET_JUDGE_CACHE: '1', MY_FLAG: 'on', OTHER: 'no' };
+    const env = buildChildEnv('none', ['MY_FLAG'], base);
+    expect(env.GOLDSET_JUDGE_CACHE).toBe('1');
+    expect(env.MY_FLAG).toBe('on');
+    expect(env.OTHER).toBeUndefined();
+  });
+});
+
+describe('resolveEvalDir', () => {
+  const cwd = process.platform === 'win32' ? 'C:\\work\\repo' : '/work/repo';
+
+  it('resolves a normal subdirectory under cwd', () => {
+    expect(resolveEvalDir(cwd, 'evals')).toBe(path.resolve(cwd, 'evals'));
+    expect(resolveEvalDir(cwd, 'fixtures/evals')).toBe(path.resolve(cwd, 'fixtures/evals'));
+  });
+
+  it('rejects a traversal that escapes cwd', () => {
+    expect(() => resolveEvalDir(cwd, '../secrets')).toThrow(/escapes/);
+    expect(() => resolveEvalDir(cwd, 'a/../../b')).toThrow(/escapes/);
+  });
+
+  it('rejects an absolute path outside cwd', () => {
+    const outside = process.platform === 'win32' ? 'C:\\etc' : '/etc';
+    expect(() => resolveEvalDir(cwd, outside)).toThrow(/escapes/);
   });
 });

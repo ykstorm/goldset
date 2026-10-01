@@ -20,9 +20,17 @@ inputs:
     required: false
     default: "true"
   github-token:
-    description: "Token used to post the PR comment (falls back to GITHUB_TOKEN env)"
+    description: "Token used to post the PR comment (this input wins over the GITHUB_TOKEN env var)"
     required: false
     default: ${{ github.token }}
+  timeout-ms:
+    description: "Per-eval wall-clock limit in milliseconds. 0 disables the limit."
+    required: false
+    default: "0"
+  pass-env:
+    description: "Comma/space-separated env var names to forward into each eval process, on top of the built-in allowlist."
+    required: false
+    default: ""
 
 outputs:
   results-path:
