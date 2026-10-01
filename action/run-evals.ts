@@ -18,8 +18,6 @@ export interface RunOptions {
   runFile?: (file: string) => { stdout: string; exitCode: number; timedOut: boolean };
 }
 
-const require = createRequire(import.meta.url);
-
 /**
  * Env var names always forwarded to an eval process. Anything else (secrets,
  * tokens, unrelated config) is dropped unless the consumer opts in via
@@ -106,7 +104,10 @@ export function buildChildEnv(
 /** Locate the pinned tsx CLI next to the consumer's install — never `npx`. */
 function resolveTsxCli(cwd: string): string | null {
   try {
-    return require.resolve('tsx/cli', { paths: [cwd] });
+    // Anchor the resolver at a path inside the consumer project instead of at
+    // import.meta.url: the Action bundles to CommonJS, where import.meta.url
+    // is undefined and createRequire(undefined) throws at module load.
+    return createRequire(path.join(cwd, 'noop.js')).resolve('tsx/cli');
   } catch {
     return null;
   }

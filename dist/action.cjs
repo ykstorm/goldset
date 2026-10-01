@@ -24382,8 +24382,6 @@ var import_node_child_process = require("child_process");
 var import_node_module = require("module");
 var import_node_fs = __toESM(require("fs"), 1);
 var import_node_path = __toESM(require("path"), 1);
-var import_meta = {};
-var require2 = (0, import_node_module.createRequire)(import_meta.url);
 var BASE_ENV_ALLOWLIST = [
   "PATH",
   "Path",
@@ -24443,7 +24441,7 @@ function buildChildEnv(provider, passEnv = [], base = process.env) {
 }
 function resolveTsxCli(cwd) {
   try {
-    return require2.resolve("tsx/cli", { paths: [cwd] });
+    return (0, import_node_module.createRequire)(import_node_path.default.join(cwd, "noop.js")).resolve("tsx/cli");
   } catch {
     return null;
   }
