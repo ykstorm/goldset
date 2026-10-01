@@ -18,8 +18,8 @@ const responses: Record<string, string> = {
 
 const llm = (input: string): string => responses[input] ?? '';
 
-// Each case needs different assertions, so run three single-case suites and
-// fold them into one structural result for reporting.
+// Each case needs different assertions, so run three single-case suites.
+// toEvalResult merges the three structural results into one.
 const jsonCase = await structural([{ id: 'json-shape', input: 'emit a user object' }], {
   llm,
   assertions: [
@@ -35,15 +35,4 @@ const toolCase = await structural([{ id: 'tool-call', input: 'lookup order #42' 
   assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }],
 });
 
-const combined = {
-  runner: 'structural' as const,
-  cases: [...jsonCase.cases, ...greetCase.cases, ...toolCase.cases],
-  summary: {
-    passed:
-      jsonCase.summary.passed + greetCase.summary.passed + toolCase.summary.passed,
-    failed:
-      jsonCase.summary.failed + greetCase.summary.failed + toolCase.summary.failed,
-  },
-};
-
-await runEval(combined);
+await runEval(jsonCase, greetCase, toolCase);

@@ -1,10 +1,7 @@
-/**
- * Customer support eval — Goldset usage example.
- *
- * Composes all three runners against a deterministic local LLM + judge so it
- * runs with no API key (`npx tsx examples/customer-support/customer-support.eval.ts`).
- * Swap `localLLM` / `localJudge` for real provider calls in your own repo.
- */
+// Customer support eval example. Composes goldenDataset, llmJudge, and
+// structural against a deterministic local LLM and judge, so it runs with no API
+// key: npx tsx examples/customer-support/customer-support.eval.ts
+// Swap localLLM / localJudge for real provider calls in your own repo.
 import { goldenDataset, llmJudge, structural, runEval } from '../../src/index';
 
 const localLLM = (input: string): string => {

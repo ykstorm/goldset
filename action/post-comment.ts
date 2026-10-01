@@ -1,13 +1,8 @@
-/**
- * PR-comment delta bot for the Goldset Action.
- *
- * Builds a results table plus a "delta vs base" section, then finds an existing
- * Goldset comment on the PR and UPDATES it (so re-runs don't spam the thread),
- * else CREATES one. The table/delta builder and the diff are pure functions so
- * they can be unit-tested without hitting GitHub.
- */
+// Builds the PR results table and delta-vs-base section, and upserts a single
+// Goldset comment. The builders and diff are pure so they unit-test without
+// GitHub. Eval-supplied text is sanitized before it reaches the table.
 
-/** One row of `goldset-results.json` — the per-eval-file result. */
+/** One row of `goldset-results.json` — the result for a single eval file. */
 export interface EvalFileResult {
   file: string;
   passed: boolean;
@@ -23,7 +18,7 @@ export interface CommentApi {
     owner: string;
     repo: string;
     issue_number: number;
-  }): Promise<{ data: { id: number; body?: string }[] }>;
+  }): Promise<{ data: { id: number; body?: string; user?: { type?: string } | null }[] }>;
   createComment(args: {
     owner: string;
     repo: string;
@@ -40,6 +35,30 @@ export interface CommentApi {
 
 export const COMMENT_MARKER = '<!-- goldset-eval-comment -->';
 const HEADING = '## Goldset eval results';
+
+/**
+ * Sanitize eval-supplied text before it is placed in a markdown table cell:
+ * strip control characters, neutralize the characters that could break the
+ * table or inject markup/mentions, and cap the length.
+ */
+export function escapeCell(value: string): string {
+  const stripped = String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  const capped = stripped.length > 200 ? stripped.slice(0, 200) : stripped;
+  return capped.replace(/[`|<>@]/g, (c) => `\\${c}`);
+}
+
+/** True if any eval that passed on the base branch now fails. */
+export function isRegression(
+  current: EvalFileResult[],
+  base?: EvalFileResult[]
+): boolean {
+  if (!base || base.length === 0) return false;
+  const baseByFile = new Map(base.map((b) => [b.file, b]));
+  return current.some((r) => {
+    const b = baseByFile.get(r.file);
+    return !!b && b.passed && !r.passed;
+  });
+}
 
 /** Diff this run against the base branch's results. */
 export function computeDelta(
@@ -70,8 +89,8 @@ export function buildCommentBody(
   body += `**${passed}/${total} eval files passed.**\n\n`;
   body += '| eval | status | details |\n|---|---|---|\n';
   for (const r of results) {
-    const detail = (r.summary ?? r.error ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
-    body += `| \`${r.file}\` | ${r.passed ? '✅ pass' : '❌ fail'} | ${detail} |\n`;
+    const detail = escapeCell(r.summary ?? r.error ?? '');
+    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? 'PASS' : 'FAIL'} | ${detail} |\n`;
   }
 
   if (base && base.length) {
@@ -81,20 +100,23 @@ export function buildCommentBody(
       body += 'No change vs base branch.\n';
     } else {
       if (regressed.length) {
-        body += `**🔴 Regressed:** ${regressed.map((f) => `\`${f}\``).join(', ')}\n\n`;
+        body += `Regressed: ${regressed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n\n`;
       }
       if (fixed.length) {
-        body += `**🟢 Fixed:** ${fixed.map((f) => `\`${f}\``).join(', ')}\n`;
+        body += `Fixed: ${fixed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n`;
       }
     }
+  } else {
+    body += '\n_No baseline on the base branch yet — commit `goldset-results.json` to enable delta checks._\n';
   }
 
   return body.trimEnd() + '\n';
 }
 
 /**
- * Post (or update) the Goldset comment on a PR. Returns the action taken so
- * callers/tests can assert update-vs-create behavior.
+ * Post (or update) the Goldset comment on a PR. An existing comment is matched
+ * only by the hidden marker AND a Bot author, so a human quoting the marker
+ * can't hijack the bot's comment. Returns the action taken for tests.
  */
 export async function postComment(
   api: CommentApi,
@@ -108,7 +130,7 @@ export async function postComment(
   });
 
   const existing = comments.find(
-    (c) => c.body?.includes(COMMENT_MARKER) || c.body?.startsWith(HEADING)
+    (c) => c.user?.type === 'Bot' && c.body?.includes(COMMENT_MARKER)
   );
 
   if (existing) {

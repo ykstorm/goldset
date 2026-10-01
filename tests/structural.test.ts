@@ -92,6 +92,19 @@ describe('structural', () => {
     expect(oneFails.cases[0].failedAssertion?.reason).toContain('nonexistent');
   });
 
+  it('rejects a catastrophic-backtracking regex quickly instead of running it', async () => {
+    const t0 = performance.now();
+    const r = await run('a'.repeat(30_000) + '!', [{ type: 'regex', pattern: '(a+)+$' }]);
+    const elapsed = performance.now() - t0;
+    expect(r.cases[0].passed).toBe(false);
+    expect(r.cases[0].failedAssertion?.reason).toContain('unsafe regex');
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  it('still runs safe regexes with repetition that is not nested', async () => {
+    expect((await run('abcabc123', [{ type: 'regex', pattern: '(abc)+\\d+' }])).cases[0].passed).toBe(true);
+  });
+
   it('should handle invalid JSON gracefully for json-schema', async () => {
     const r = await run('This is not JSON {]', [
       { type: 'json-schema', schema: { type: 'object', properties: { name: {} } } },

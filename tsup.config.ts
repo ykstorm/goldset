@@ -2,17 +2,13 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    // Library + CLI entries. Emit .mjs (ESM) + .cjs (CJS) so package.json
-    // `exports` resolve to files that actually exist. Previously
-    // `exports.import` / `module` pointed at dist/index.mjs which tsup never
-    // emitted, so a bare `import '@ykstormsorg/goldset'` threw
-    // ERR_MODULE_NOT_FOUND, and `require` pointed at dist/index.js which was
-    // actually ESM (the package is `"type": "module"`).
-    entry: ['src/index.ts', 'src/cli.ts'],
+    // Library entry. Emit .mjs (ESM) + .cjs (CJS) so package.json `exports`
+    // resolve to files that exist, and `require` gets real CJS.
+    entry: ['src/index.ts'],
     format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
-    sourcemap: true,
+    sourcemap: false,
     clean: true,
     outDir: 'dist',
     outExtension({ format }) {

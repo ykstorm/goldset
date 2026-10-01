@@ -1,0 +1,35 @@
+[
+  {
+    "file": "golden.eval.ts",
+    "passed": true,
+    "summary": "goldenDataset 3/3",
+    "runners": {
+      "goldenDataset": {
+        "passed": 3,
+        "failed": 0
+      }
+    }
+  },
+  {
+    "file": "judge.eval.ts",
+    "passed": true,
+    "summary": "llmJudge 2/2",
+    "runners": {
+      "llmJudge": {
+        "passed": 2,
+        "failed": 0
+      }
+    }
+  },
+  {
+    "file": "structural.eval.ts",
+    "passed": true,
+    "summary": "structural 3/3",
+    "runners": {
+      "structural": {
+        "passed": 3,
+        "failed": 0
+      }
+    }
+  }
+]

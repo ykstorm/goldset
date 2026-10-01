@@ -1,4 +1,4 @@
-// ─── Documented functional API (README + docs/API.md) ───────────────────────
+// Functional runner API
 export {
   goldenDataset,
   llmJudge,
@@ -6,6 +6,7 @@ export {
   grounding,
   runEval,
   toEvalResult,
+  parseJudgeScore,
 } from './runners/api';
 export type {
   LLMFn,
@@ -29,7 +30,7 @@ export type {
   EvalResult,
 } from './runners/api';
 
-// ─── Structural assertion vocabulary ─────────────────────────────────────────
+// Structural assertion vocabulary
 export { applyAssertions } from './runners/structural';
 export type {
   Assertion,
@@ -37,15 +38,5 @@ export type {
   AssertionFailure,
 } from './runners/structural';
 
-// ─── Lower-level class API (golden dataset) ──────────────────────────────────
-export {
-  GoldenDatasetRunner,
-  calculateSimilarity,
-  levenshteinDistance,
-} from './runners/golden';
-export type {
-  GoldenDatasetConfig,
-  GoldenTestCase,
-  EvaluationResult,
-  EvaluationSummary,
-} from './types';
+// Similarity utilities
+export { calculateSimilarity, levenshteinDistance } from './runners/golden';

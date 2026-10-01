@@ -1,9 +1,10 @@
 # Roadmap
 
-## v0.2 — Current: Three runners shipped
+## v0.2 — Current: Four runners shipped
 - [x] `goldenDataset` — Levenshtein similarity, configurable threshold
 - [x] `llmJudge` — LLM-as-judge scoring, rubric-based
-- [x] `structural` — JSON schema + tool call shape assertions
+- [x] `structural` — JSON schema, regex, substring, tool call shape assertions
+- [x] `grounding` — RAG faithfulness, answer supported by context
 - [x] GitHub Action — PR diff comments, merge-blocking on regression
 - [x] npm package — `@ykstormsorg/goldset`
 - [x] Listed on GitHub Marketplace

@@ -1,22 +1,24 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.x     | :white_check_mark: |
+| Version | Supported |
+| ------- | --------- |
+| 0.2.x   | Yes       |
+| < 0.2   | No        |
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability, please report it responsibly.
+Please report security issues privately through GitHub's private vulnerability
+reporting: open the repository's **Security** tab and choose **Report a
+vulnerability**. Do not open a public issue for a security report.
 
-Do NOT report security vulnerabilities through public GitHub issues.
-Instead, please contact the maintainers directly.
+Include as much as you can:
 
-Please include as much of the following as possible:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Any suggested remediation
+- a description of the vulnerability,
+- steps to reproduce,
+- the potential impact, and
+- any suggested remediation.
 
-We aim to respond within 48 hours and will keep you informed throughout the process.
+You can expect an initial response within a few days, and updates as the report is
+triaged and addressed.

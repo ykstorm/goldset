@@ -1,26 +1,20 @@
-/**
- * Structural assertion primitives.
- *
- * The public `structural()` runner lives in `./api.ts` and consumes
- * {@link applyAssertions}. This module owns the assertion vocabulary and the
- * per-assertion validators.
- */
-/**
- * Assertion type for structural validation
- */
 type AssertionType = 'json-schema' | 'regex' | 'contains' | 'tool-call-shape';
-/**
- * A single assertion to validate LLM output.
- */
-interface Assertion {
-    type: AssertionType;
-    schema?: Record<string, unknown>;
-    pattern?: string | RegExp;
+/** A single assertion to validate LLM output, discriminated by `type`. */
+type Assertion = {
+    type: 'json-schema';
+    schema: Record<string, unknown>;
+} | {
+    type: 'regex';
+    pattern: string | RegExp;
     flags?: string;
-    substring?: string;
-    toolName?: string;
+} | {
+    type: 'contains';
+    substring: string;
+} | {
+    type: 'tool-call-shape';
+    toolName: string;
     argCount?: number;
-}
+};
 /**
  * Description of the first assertion that failed for a given output.
  */
@@ -32,6 +26,11 @@ interface AssertionFailure {
  * Applies all assertions; returns the first failure, or null if all passed.
  */
 declare function applyAssertions(output: string, assertions: Assertion[]): AssertionFailure | null;
+
+interface JudgeCache {
+    get(key: string): string | undefined;
+    set(key: string, verdict: string): void;
+}
 
 type LLMFn = (input: string) => Promise<string> | string;
 type JudgeFn = (prompt: string) => Promise<string> | string;
@@ -63,7 +62,26 @@ interface GoldenResult {
         avgSimilarity: number;
     };
 }
+/**
+ * Parse a judge verdict into a trustworthy score: the JSON `score` must be a
+ * finite number, which is then clamped to [0, 5] and rounded to an integer.
+ * Anything else (missing, non-numeric, NaN, a string, unparseable) scores 0.
+ */
+declare function parseJudgeScore(text: string): number;
 declare function goldenDataset(cases: GoldenCase[], config: GoldenConfig): Promise<GoldenResult>;
+interface JudgeScoredCaseResult {
+    id: string;
+    passed: boolean;
+    score: number;
+    output: string;
+    reasoning?: string;
+    passThreshold: number;
+}
+interface JudgeScoredSummary {
+    passed: number;
+    failed: number;
+    avgScore: number;
+}
 interface JudgeCase {
     id: string;
     input: string;
@@ -75,25 +93,35 @@ interface JudgeConfig {
     rubric: string;
     passThreshold?: number;
     verbose?: boolean;
+    cache?: JudgeCache;
 }
-interface JudgeCaseResult {
-    id: string;
-    passed: boolean;
-    score: number;
-    output: string;
-    reasoning?: string;
-    passThreshold: number;
-}
+type JudgeCaseResult = JudgeScoredCaseResult;
 interface JudgeResult {
     runner: 'llmJudge';
     cases: JudgeCaseResult[];
-    summary: {
-        passed: number;
-        failed: number;
-        avgScore: number;
-    };
+    summary: JudgeScoredSummary;
 }
 declare function llmJudge(cases: JudgeCase[], config: JudgeConfig): Promise<JudgeResult>;
+interface GroundingCase {
+    id: string;
+    input: string;
+    /** The retrieved context the answer must stay faithful to. */
+    context: string[];
+}
+interface GroundingConfig {
+    llm: LLMFn;
+    judge: JudgeFn;
+    passThreshold?: number;
+    verbose?: boolean;
+    cache?: JudgeCache;
+}
+type GroundingCaseResult = JudgeScoredCaseResult;
+interface GroundingResult {
+    runner: 'grounding';
+    cases: GroundingCaseResult[];
+    summary: JudgeScoredSummary;
+}
+declare function grounding(cases: GroundingCase[], config: GroundingConfig): Promise<GroundingResult>;
 interface StructuralCase {
     id: string;
     input: string;
@@ -127,16 +155,23 @@ interface EvalResult {
         goldenDataset?: GoldenResult;
         llmJudge?: JudgeResult;
         structural?: StructuralResult;
+        grounding?: GroundingResult;
     };
     passed: boolean;
 }
-type AnyRunnerResult = GoldenResult | JudgeResult | StructuralResult;
+type AnyRunnerResult = GoldenResult | JudgeResult | StructuralResult | GroundingResult;
+/** Options object `toEvalResult`/`runEval` accept as a trailing argument. */
+interface ToEvalResultOptions {
+    /** Omit the volatile timestamp/commit/branch fields for deterministic output. */
+    stable?: boolean;
+}
 /**
- * Combine one or more runner results into the shared `EvalResult` shape that
- * the GitHub Action's diff engine consumes. `passed` is true only if every
- * runner had zero failures.
+ * Combine runner results into the shared `EvalResult` shape the Action consumes.
+ * Two results from the same runner are merged. `passed` is true only if every
+ * runner had zero failures. Pass `{ stable: true }` as the last argument to omit
+ * the volatile timestamp/commit/branch fields.
  */
-declare function toEvalResult(...runnerResults: AnyRunnerResult[]): EvalResult;
+declare function toEvalResult(...args: (AnyRunnerResult | ToEvalResultOptions)[]): EvalResult;
 /**
  * Convenience harness for an `.eval.ts` file. Runs the provided runners,
  * prints a human summary, and — when invoked with `--output json` (as the
@@ -146,73 +181,14 @@ declare function toEvalResult(...runnerResults: AnyRunnerResult[]): EvalResult;
 declare function runEval(...runnerResults: AnyRunnerResult[]): Promise<EvalResult>;
 
 /**
- * Configuration for the golden dataset runner
- */
-interface GoldenDatasetConfig {
-    threshold: number;
-    verbose?: boolean;
-}
-/**
- * A single test case in the golden dataset
- */
-interface GoldenTestCase {
-    id: string;
-    input: string;
-    expectedOutput: string;
-    description?: string;
-}
-/**
- * Result of evaluating a single test case
- */
-interface EvaluationResult {
-    testCaseId: string;
-    input: string;
-    expectedOutput: string;
-    actualOutput: string;
-    similarity: number;
-    passed: boolean;
-}
-/**
- * Summary of evaluation results
- */
-interface EvaluationSummary {
-    totalTests: number;
-    passedTests: number;
-    failedTests: number;
-    averageSimilarity: number;
-    results: EvaluationResult[];
-}
-
-/**
- * Calculate Levenshtein distance between two strings
+ * Calculate Levenshtein distance between two strings using a two-row dynamic
+ * program (O(min(m,n)) memory). Inputs longer than MAX_LEVENSHTEIN_LEN are
+ * truncated first so a pathological pair can't blow up time or memory.
  */
 declare function levenshteinDistance(str1: string, str2: string): number;
 /**
  * Calculate similarity score as 1 - (distance / maxLength)
  */
 declare function calculateSimilarity(str1: string, str2: string): number;
-/**
- * Golden dataset runner for evaluating AI outputs
- */
-declare class GoldenDatasetRunner {
-    private config;
-    constructor(config?: GoldenDatasetConfig);
-    /**
-     * Evaluate a single test case against expected output
-     */
-    evaluate(testCase: GoldenTestCase, actualOutput: string): EvaluationResult;
-    /**
-     * Evaluate multiple test cases and return summary
-     */
-    evaluateMany(testCases: GoldenTestCase[], actualOutputs: string[]): EvaluationSummary;
-    /**
-     * Get the current threshold
-     */
-    getThreshold(): number;
-    /**
-     * Set the threshold
-     */
-    setThreshold(threshold: number): void;
-}
 
-export { type Assertion, type AssertionFailure, type AssertionType, type EvalResult, type EvaluationResult, type EvaluationSummary, type GoldenCase, type GoldenCaseResult, type GoldenConfig, type GoldenDatasetConfig, GoldenDatasetRunner, type GoldenResult, type GoldenTestCase, type JudgeCase, type JudgeCaseResult, type JudgeConfig, type JudgeFn, type JudgeResult, type LLMFn, type StructuralCase, type StructuralCaseResult, type StructuralConfig, type StructuralResult, applyAssertions, calculateSimilarity, goldenDataset, levenshteinDistance, llmJudge, runEval, structural, toEvalResult };
+export { type Assertion, type AssertionFailure, type AssertionType, type EvalResult, type GoldenCase, type GoldenCaseResult, type GoldenConfig, type GoldenResult, type GroundingCase, type GroundingCaseResult, type GroundingConfig, type GroundingResult, type JudgeCase, type JudgeCaseResult, type JudgeConfig, type JudgeFn, type JudgeResult, type LLMFn, type StructuralCase, type StructuralCaseResult, type StructuralConfig, type StructuralResult, applyAssertions, calculateSimilarity, goldenDataset, grounding, levenshteinDistance, llmJudge, parseJudgeScore, runEval, structural, toEvalResult };

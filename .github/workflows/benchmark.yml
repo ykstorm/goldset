@@ -11,19 +11,23 @@ on:
     paths: ['bench/runners.mjs', 'src/runners/**']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   free-runners:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
+          cache: 'npm'
       - run: npm ci
       - run: npm run build
       - name: Run free-runner timing benchmark
         run: node bench/runners.mjs | tee bench/results.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: free-runners
           path: bench/results.txt
@@ -35,17 +39,18 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
+          cache: 'npm'
       - run: npm ci
       - run: npm run build
       - name: Run LLM-judge cost benchmark (Claude Haiku)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node bench/judge.mjs | tee bench/judge-results.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: judge-cost
           path: bench/judge-results.json
