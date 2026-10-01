@@ -6,6 +6,7 @@ export {
   grounding,
   runEval,
   toEvalResult,
+  parseJudgeScore,
 } from './runners/api';
 export type {
   LLMFn,

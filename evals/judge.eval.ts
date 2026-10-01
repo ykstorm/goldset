@@ -14,11 +14,13 @@ const llm = (input: string): string =>
   /[ऀ-ॿ]/.test(input) ? 'नमस्ते, मैं मदद कर सकता हूँ' : 'Hello, I can help';
 
 // Local judge: scores 5 if the response language matches the input language.
+// Reads the tagged <input>/<output> sections of the judge prompt.
+const section = (prompt: string, name: string): string =>
+  prompt.match(new RegExp(`<${name}>\\n([\\s\\S]*?)\\n</${name}>`))?.[1] ?? '';
+
 const localJudge = (prompt: string): string => {
-  const inputLine = prompt.split('\n').find((l) => l.startsWith('Input:')) ?? '';
-  const outputLine = prompt.split('\n').find((l) => l.startsWith('Actual Output:')) ?? '';
-  const inputIsHindi = /[ऀ-ॿ]/.test(inputLine);
-  const outputIsHindi = /[ऀ-ॿ]/.test(outputLine);
+  const inputIsHindi = /[ऀ-ॿ]/.test(section(prompt, 'input'));
+  const outputIsHindi = /[ऀ-ॿ]/.test(section(prompt, 'output'));
   const score = inputIsHindi === outputIsHindi ? 5 : 1;
   return JSON.stringify({ score, reason: 'language match check' });
 };
