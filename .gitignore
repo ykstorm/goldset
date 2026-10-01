@@ -25,9 +25,11 @@ build/
 coverage/
 .nyc_output/
 
-# Action output (written at runtime)
-goldset-results.json
+# Action artifacts
 *.tgz
+
+# Note: goldset-results.json is intentionally tracked — it is the committed
+# baseline the Action diffs each PR against. Do not git-ignore it.
 
 # local pre-polish README backup (not tracked)
 README.pre-polish.md
