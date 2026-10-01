@@ -1,13 +1,6 @@
-/**
- * PR-comment delta bot for the Goldset Action.
- *
- * Builds a results table plus a "delta vs base" section, then finds the existing
- * Goldset comment on the PR and updates it (so re-runs don't spam the thread),
- * else creates one. The table/delta builder and the diff are pure functions so
- * they can be unit-tested without hitting GitHub. All cell content that comes
- * from an eval (file names, summaries, errors, runner names) is sanitized before
- * it reaches the markdown table.
- */
+// Builds the PR results table and delta-vs-base section, and upserts a single
+// Goldset comment. The builders and diff are pure so they unit-test without
+// GitHub. Eval-supplied text is sanitized before it reaches the table.
 
 /** One row of `goldset-results.json` — the result for a single eval file. */
 export interface EvalFileResult {
@@ -97,7 +90,7 @@ export function buildCommentBody(
   body += '| eval | status | details |\n|---|---|---|\n';
   for (const r of results) {
     const detail = escapeCell(r.summary ?? r.error ?? '');
-    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? '✅ pass' : '❌ fail'} | ${detail} |\n`;
+    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? 'PASS' : 'FAIL'} | ${detail} |\n`;
   }
 
   if (base && base.length) {
@@ -107,10 +100,10 @@ export function buildCommentBody(
       body += 'No change vs base branch.\n';
     } else {
       if (regressed.length) {
-        body += `**🔴 Regressed:** ${regressed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n\n`;
+        body += `Regressed: ${regressed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n\n`;
       }
       if (fixed.length) {
-        body += `**🟢 Fixed:** ${fixed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n`;
+        body += `Fixed: ${fixed.map((f) => `\`${escapeCell(f)}\``).join(', ')}\n`;
       }
     }
   } else {

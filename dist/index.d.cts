@@ -1,13 +1,3 @@
-/**
- * Structural assertion primitives.
- *
- * The public `structural()` runner lives in `./api.ts` and consumes
- * {@link applyAssertions}. This module owns the assertion vocabulary and the
- * per-assertion validators.
- */
-/**
- * Assertion type for structural validation
- */
 type AssertionType = 'json-schema' | 'regex' | 'contains' | 'tool-call-shape';
 /**
  * A single assertion to validate LLM output.

@@ -1,19 +1,12 @@
-/**
- * Public functional API for Goldset's three runners.
- *
- * These are the functions documented in the README and docs/API.md
- * (`goldenDataset`, `llmJudge`, `structural`). They are thin wrappers over the
- * underlying matching logic that return the documented result shapes:
- * `{ runner, cases, summary }`. An `.eval.ts` file composes them and reports a
- * combined `EvalResult` via {@link toEvalResult} / {@link runEval}.
- */
+// The four runners (goldenDataset, llmJudge, grounding, structural) plus the
+// toEvalResult/runEval harness. Each runner returns { runner, cases, summary }.
 import { calculateSimilarity } from './golden';
 import { applyAssertions, type Assertion, type AssertionFailure } from './structural';
 
 export type LLMFn = (input: string) => Promise<string> | string;
 export type JudgeFn = (prompt: string) => Promise<string> | string;
 
-// ─── goldenDataset ───────────────────────────────────────────────────────────
+// goldenDataset
 
 export interface GoldenCase {
   id: string;
@@ -49,7 +42,7 @@ export interface GoldenResult {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-// ─── Judge prompt safety ──────────────────────────────────────────────────────
+// Judge prompt safety
 // The model under test can control its own `output`, and a case author controls
 // `rubric`/`input`/`expected`/`context`. All of that is untrusted when it reaches
 // the judge, so it is wrapped in named tags, the closing-tag sequence is escaped
@@ -119,7 +112,7 @@ export async function goldenDataset(
     );
     const passed = similarity >= threshold;
     if (config.verbose) {
-      console.log(`[goldenDataset] ${passed ? '✓' : '✗'} ${tc.id} (similarity ${similarity})`);
+      console.log(`[goldenDataset] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (similarity ${similarity})`);
     }
     results.push({ id: tc.id, passed, similarity, output, threshold });
   }
@@ -141,7 +134,7 @@ export async function goldenDataset(
   };
 }
 
-// ─── llmJudge ────────────────────────────────────────────────────────────────
+// llmJudge
 
 export interface JudgeCase {
   id: string;
@@ -201,7 +194,7 @@ Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON obje
 
     const passed = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[llmJudge] ${passed ? '✓' : '✗'} ${tc.id} (score ${score}/5)`);
+      console.log(`[llmJudge] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
   }
@@ -218,7 +211,7 @@ Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON obje
   };
 }
 
-// ─── grounding (faithfulness) ─────────────────────────────────────────────────
+// grounding (faithfulness)
 // Catches RAG hallucination: the model's answer must be supported by the
 // provided context. A judge scores how grounded the output is in `context`;
 // unsupported/invented claims lower the score. Same judge-scored shape as
@@ -285,7 +278,7 @@ Using ONLY the <context>, decide whether every factual claim in <output> is supp
 
     const passed = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[grounding] ${passed ? '✓' : '✗'} ${tc.id} (score ${score}/5)`);
+      console.log(`[grounding] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
   }
@@ -302,7 +295,7 @@ Using ONLY the <context>, decide whether every factual claim in <output> is supp
   };
 }
 
-// ─── structural ──────────────────────────────────────────────────────────────
+// structural
 
 export interface StructuralCase {
   id: string;
@@ -343,7 +336,7 @@ export async function structural(
     const failure = applyAssertions(output, assertions);
     const passed = failure === null;
     if (config.verbose) {
-      console.log(`[structural] ${passed ? '✓' : '✗'} ${tc.id}`);
+      console.log(`[structural] ${passed ? 'PASS' : 'FAIL'} ${tc.id}`);
     }
     results.push({
       id: tc.id,
@@ -361,7 +354,7 @@ export async function structural(
   };
 }
 
-// ─── Combined eval result + harness ──────────────────────────────────────────
+// Combined eval result + harness
 
 export interface EvalResult {
   version: 1;
@@ -420,7 +413,7 @@ export async function runEval(
   } else {
     for (const r of runnerResults) {
       const total = r.cases.length;
-      const mark = r.summary.failed === 0 ? '✓' : '✗';
+      const mark = r.summary.failed === 0 ? 'PASS' : 'FAIL';
       console.log(`${mark} ${r.runner}: ${r.summary.passed}/${total} passed`);
     }
   }

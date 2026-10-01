@@ -24570,7 +24570,7 @@ ${HEADING}
   body += "| eval | status | details |\n|---|---|---|\n";
   for (const r of results) {
     const detail = escapeCell(r.summary ?? r.error ?? "");
-    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? "\u2705 pass" : "\u274C fail"} | ${detail} |
+    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? "PASS" : "FAIL"} | ${detail} |
 `;
   }
   if (base && base.length) {
@@ -24580,12 +24580,12 @@ ${HEADING}
       body += "No change vs base branch.\n";
     } else {
       if (regressed.length) {
-        body += `**\u{1F534} Regressed:** ${regressed.map((f) => `\`${escapeCell(f)}\``).join(", ")}
+        body += `Regressed: ${regressed.map((f) => `\`${escapeCell(f)}\``).join(", ")}
 
 `;
       }
       if (fixed.length) {
-        body += `**\u{1F7E2} Fixed:** ${fixed.map((f) => `\`${escapeCell(f)}\``).join(", ")}
+        body += `Fixed: ${fixed.map((f) => `\`${escapeCell(f)}\``).join(", ")}
 `;
       }
     }
@@ -24711,7 +24711,7 @@ async function run() {
     ],
     ...results.map((r) => [
       { data: r.file },
-      { data: r.passed ? "\u2705 pass" : "\u274C fail" },
+      { data: r.passed ? "PASS" : "FAIL" },
       { data: r.summary ?? r.error ?? "" }
     ])
   ];

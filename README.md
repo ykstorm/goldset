@@ -1,19 +1,17 @@
 # Goldset
 
-**Lock your AI app's behavior — golden datasets, LLM-as-judge, and structural assertions in CI.**
-
-> A prompt edit is a code change with no compiler — it fixes one behavior and silently regresses another, and nothing fails until a user notices.
+Run behavioral checks on your AI app in CI: golden datasets, an LLM judge,
+grounding, and structural assertions. Goldset posts a delta-vs-base comment on the
+pull request and fails the check when behavior regresses, so the merge is gated.
 
 [![npm](https://img.shields.io/npm/v/@ykstormsorg/goldset.svg)](https://npmjs.com/package/@ykstormsorg/goldset)
 [![CI](https://github.com/ykstorm/goldset/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/goldset/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
----
-
 ## Contents
 
 - [Why this exists](#why-this-exists)
-- [Why Goldset?](#why-goldset)
+- [What you get](#what-you-get)
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Four runners](#four-runners)
@@ -23,50 +21,36 @@
 - [Setup guide](docs/SETUP.md)
 - [Contributing](CONTRIBUTING.md)
 
----
-
 ## Why this exists
 
-Goldset started after a wording change in one section of Homesty's production
-system prompt silently shifted refusal behavior three sections away — the kind of
-regression no unit test catches and no user forgives. The answer was to gate
-prompt-adjacent merges on behavioral evals the same way type checks gate code:
-the runners execute in CI, post a delta-vs-base comment on the pull request, and
-**block the merge** when a golden case drifts, a judge rubric fails, or an output
-shape breaks. Not a dashboard someone remembers to open — a check that fails.
+A prompt edit has no compiler. Changing the wording in one part of a system prompt
+can shift behavior somewhere unrelated, and nothing fails until a user notices.
+Goldset gates prompt-adjacent merges on behavioral evals the same way type checks
+gate code. The runners execute in CI, post a delta-vs-base comment on the pull
+request, and fail the check when a golden case drifts, a judge rubric fails, an
+answer is unsupported by its context, or an output shape breaks. It is a check
+that fails, not a dashboard someone has to remember to open.
 
----
+## What you get
 
-## Why Goldset?
-
-Most AI eval tools are dashboards with no CI integration. Goldset is the opposite:
-
-- **Evals as code** — sit next to your app in the same repo
-- **GitHub Action native** — PR diff comments, merge-blocking on regression
-- **Provider agnostic** — plug in any `llm: (input) => Promise<string>`
-- **Four orthogonal runners** — catch four completely different failure modes
+- Evals as code, living in the same repo as your app.
+- A GitHub Action with PR diff comments and merge-blocking on regression.
+- Provider independence: plug in any `llm: (input) => Promise<string>`.
+- Four runners that catch four different failure modes.
 
 | Runner | What it catches | Best for |
 |--------|-----------------|----------|
-| `goldenDataset` | Output drifted from canonical answer | FAQ, refusal correctness, deterministic Q&A |
+| `goldenDataset` | Output drifted from a canonical answer | FAQ, refusal correctness, deterministic Q&A |
 | `llmJudge` | Behavior regression on open-ended outputs | Tone, helpfulness, brand voice, language matching |
 | `structural` | Output shape broke | Function calling, structured generation, JSON schema |
-| `grounding` | Answer not supported by context (hallucination) | RAG faithfulness, refusal-first retrieval, citation checks |
-
----
+| `grounding` | Answer not supported by context | RAG faithfulness, citation checks |
 
 ## Install
 
 ```bash
 npm install @ykstormsorg/goldset
+npm install -D tsx   # optional peer dep, used to run .eval.ts files directly
 ```
-
-Peer dependency (not installed automatically):
-```bash
-npm install tsx   # for running .eval.ts files directly
-```
-
----
 
 ## Quickstart
 
@@ -87,19 +71,19 @@ const golden = await goldenDataset(
 
 const judged = await llmJudge(
   [
-    { id: 'hindi-q', input: 'Bopal mein 2BHK?', expected: 'Hindi response' },
-    { id: 'french-q', input: 'Comment ça marche?', expected: 'French response' },
+    { id: 'es-q', input: '¿Cómo funciona esto?', expected: 'Spanish response' },
+    { id: 'fr-q', input: 'Comment ça marche ?', expected: 'French response' },
   ],
   {
     llm: myLLM,
     judge: myJudge,
-    rubric: 'Score 5 if response is in the same language as the input. 0 if not.',
+    rubric: 'Score 5 if the response is in the same language as the input, 0 if not.',
     passThreshold: 3,
   }
 )
 
 const shape = await structural(
-  [{ id: 'tool-q', input: 'lookup order #42' }],
+  [{ id: 'tool-q', input: 'lookup order 42' }],
   {
     llm: myLLM,
     assertions: [
@@ -109,8 +93,8 @@ const shape = await structural(
   }
 )
 
-// runEval prints a human summary (or JSON with `--output json`, as the
-// GitHub Action does) and exits non-zero if any runner failed.
+// runEval prints a human summary (or JSON with --output json, as the GitHub
+// Action does) and exits non-zero if any runner failed.
 await runEval(golden, judged, shape)
 ```
 
@@ -121,10 +105,11 @@ npx tsx evals/customer-support.eval.ts
 ```
 
 Output:
+
 ```
-✓ goldenDataset: 2/2 passed
-✓ llmJudge: 2/2 passed
-✓ structural: 1/1 passed
+PASS goldenDataset: 2/2 passed
+PASS llmJudge: 2/2 passed
+PASS structural: 1/1 passed
 ```
 
 ### 3. Add to CI
@@ -163,23 +148,24 @@ jobs:
 For a supply-chain-hardened pin, reference the Action by commit SHA rather than a
 moving tag, for example `uses: ykstorm/goldset@<sha>  # v1`.
 
-The Action runs every `*.eval.ts` under `eval-dir` with `npx tsx <file> --output json`,
-writes a combined `goldset-results.json`, posts (or updates) a PR comment with a
-results table and a **delta-vs-base** section, and **fails the check** if any eval
-fails or regresses against the base branch — gating the merge.
+The Action runs every `*.eval.ts` under `eval-dir` with the pinned `tsx` CLI
+(`--output json`), writes a combined `goldset-results.json`, posts or updates a PR
+comment with a results table and a delta-vs-base section, and fails the check if
+any eval fails or regresses against the base branch.
 
 ## GitHub Action
 
 | Input | Default | Description |
 |-------|---------|-------------|
 | `eval-dir` | `evals` | Directory containing `*.eval.ts` files |
-| `judge-provider` | `none` | `openai` \| `anthropic` \| `none`. Exposes the matching key (already on the runner env) to your eval as `GOLDSET_JUDGE_PROVIDER` |
+| `judge-provider` | `none` | `openai` \| `anthropic` \| `none`. Sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key to your eval |
 | `fail-on-regression` | `true` | Fail the check if any eval regresses vs the base branch |
-| `comment-on-pr` | `true` | Post/update a results + delta comment on the PR |
+| `comment-on-pr` | `true` | Post or update a results + delta comment on the PR |
+| `github-token` | `${{ github.token }}` | Token for the PR comment; wins over `GITHUB_TOKEN` |
+| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |
+| `pass-env` | empty | Extra env var names to forward into each eval process |
 
 Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
-
----
 
 ## Four runners
 
@@ -188,44 +174,43 @@ Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
 | Golden dataset | `goldenDataset(cases, { llm, threshold })` | Output drifted from the canonical answer (Levenshtein similarity vs a threshold) |
 | LLM-as-judge | `llmJudge(cases, { llm, judge, rubric })` | Behavior regression on open-ended outputs (a second LLM scores against a rubric) |
 | Structural | `structural(cases, { llm, assertions })` | Output shape broke (JSON schema, regex, substring, tool-call shape) |
-| Grounding | `grounding(cases, { llm, judge })` | RAG hallucination — the answer makes claims the provided `context` does not support (faithfulness) |
+| Grounding | `grounding(cases, { llm, judge })` | Answer makes claims the provided context does not support |
 
 See the full [API reference](docs/API.md).
 
 ## Performance
 
-The golden and structural runners are pure-CPU and run on every PR, so they have
-to be fast enough to never block one. Measured (Node 24, 1000 synthetic cases,
-stub `llm` — no provider call):
+The golden and structural runners are pure CPU and run on every PR, so they have
+to be fast enough never to block one. Numbers below are one run on Node 24 with
+1000 synthetic cases and a stub `llm` (no provider call), measured 2026-10-01:
 
 | Runner | 1000 cases | per case |
 |---|---|---|
-| Structural (json-schema + regex + contains) | **3.3 ms** | ~3.3 µs |
-| Golden (Levenshtein similarity) | **29.8 ms** | ~30 µs |
+| Structural (json-schema + regex + contains) | 3.3 ms | ~3.3 µs |
+| Golden (Levenshtein similarity) | 29.8 ms | ~30 µs |
 
-A full PR's worth of deterministic checks is single-digit-to-tens of
-milliseconds — the eval gate never becomes the slow step. Reproduce with
-`node bench/runners.mjs` (no API key).
+A full PR's worth of deterministic checks is milliseconds, so the eval gate does
+not become the slow step. Reproduce with `node bench/runners.mjs` (no API key).
 
 ### LLM-judge cost
 
-The judge is the one runner that spends money — it calls a model to score each
-case. `bench/judge.mjs` prices exactly that: the real `llmJudge` runner with a
-free stub `llm` (the "AI under test") and a real Claude Haiku judge. Measured in
-CI against `claude-haiku-4-5` over 8 cases (workflow_dispatch, one call/case):
+The judge is the one runner that spends money, because it calls a model to score
+each case. `bench/judge.mjs` prices exactly that: the real `llmJudge` runner with
+a free stub `llm` and a real Claude Haiku judge. One run in CI against
+`claude-haiku-4-5` over 8 cases (workflow_dispatch, one call per case), measured
+2026-10-01:
 
 | Metric | Result |
 |---|---|
-| Cost per judged case | **$0.00047** (≈ $0.47 per 1,000 cases) |
-| Judge latency p50 / avg | **1410 ms / 1305 ms** |
-| Tokens (8 cases) | 1,659 in / 413 out → **$0.0037 total** |
+| Cost per judged case | $0.00047 (about $0.47 per 1,000 cases) |
+| Judge latency p50 / avg | 1410 ms / 1305 ms |
+| Tokens (8 cases) | 1,659 in / 413 out, $0.0037 total |
 
-So a 200-case judged suite runs about **9 cents**. Reproduce with
+A 200-case judged suite runs about 9 cents. Reproduce with
 `ANTHROPIC_API_KEY=… node bench/judge.mjs`, or trigger the `judge-cost` job in
-[`benchmark.yml`](.github/workflows/benchmark.yml) — manual dispatch only, so
-fork PRs can't touch the key and every paid run is deliberate.
+[`benchmark.yml`](.github/workflows/benchmark.yml). It is manual dispatch only, so
+fork PRs cannot touch the key and every paid run is deliberate.
 
 ## License
 
 Apache-2.0
-

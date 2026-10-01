@@ -102,7 +102,7 @@ async function run(): Promise<void> {
   core.setOutput('total', String(total));
   core.setOutput('all-passed', failed === 0 ? 'true' : 'false');
 
-  // ── Baseline diff + regression (computed independently of the comment) ──────
+  // Baseline diff + regression, computed independently of the comment.
   // Input wins over the ambient GITHUB_TOKEN so a caller can pass a scoped token.
   const token = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
   const pr = github.context.payload.pull_request;
@@ -132,7 +132,7 @@ async function run(): Promise<void> {
     core.warning('[goldset] GITHUB_TOKEN not available — skipping PR comment');
   }
 
-  // ── Summary ────────────────────────────────────────────────────────────────
+  // Job summary table.
   const rows: { data: string; header?: boolean }[][] = [
     [
       { data: 'eval', header: true },
@@ -141,7 +141,7 @@ async function run(): Promise<void> {
     ],
     ...results.map((r) => [
       { data: r.file },
-      { data: r.passed ? '✅ pass' : '❌ fail' },
+      { data: r.passed ? 'PASS' : 'FAIL' },
       { data: r.summary ?? r.error ?? '' },
     ]),
   ];

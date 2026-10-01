@@ -300,7 +300,7 @@ async function goldenDataset(cases, config) {
     );
     const passed2 = similarity >= threshold;
     if (config.verbose) {
-      console.log(`[goldenDataset] ${passed2 ? "\u2713" : "\u2717"} ${tc.id} (similarity ${similarity})`);
+      console.log(`[goldenDataset] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (similarity ${similarity})`);
     }
     results.push({ id: tc.id, passed: passed2, similarity, output, threshold });
   }
@@ -336,7 +336,7 @@ Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON obje
     const reasoning = parseJudgeReason(judgeText);
     const passed2 = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[llmJudge] ${passed2 ? "\u2713" : "\u2717"} ${tc.id} (score ${score}/5)`);
+      console.log(`[llmJudge] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
   }
@@ -369,7 +369,7 @@ Using ONLY the <context>, decide whether every factual claim in <output> is supp
     const reasoning = parseJudgeReason(judgeText);
     const passed2 = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[grounding] ${passed2 ? "\u2713" : "\u2717"} ${tc.id} (score ${score}/5)`);
+      console.log(`[grounding] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
   }
@@ -389,7 +389,7 @@ async function structural(cases, config) {
     const failure = applyAssertions(output, assertions);
     const passed2 = failure === null;
     if (config.verbose) {
-      console.log(`[structural] ${passed2 ? "\u2713" : "\u2717"} ${tc.id}`);
+      console.log(`[structural] ${passed2 ? "PASS" : "FAIL"} ${tc.id}`);
     }
     results.push({
       id: tc.id,
@@ -429,7 +429,7 @@ async function runEval(...runnerResults) {
   } else {
     for (const r of runnerResults) {
       const total = r.cases.length;
-      const mark = r.summary.failed === 0 ? "\u2713" : "\u2717";
+      const mark = r.summary.failed === 0 ? "PASS" : "FAIL";
       console.log(`${mark} ${r.runner}: ${r.summary.passed}/${total} passed`);
     }
   }

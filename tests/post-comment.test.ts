@@ -84,8 +84,8 @@ describe('buildCommentBody', () => {
     expect(body).toContain(COMMENT_MARKER);
     expect(body).toContain('## Goldset eval results');
     expect(body).toContain('**2/3 eval files passed.**');
-    expect(body).toContain('| `a.eval.ts` | ✅ pass | golden 2/2 |');
-    expect(body).toContain('| `b.eval.ts` | ❌ fail | eval exited 1 |');
+    expect(body).toContain('| `a.eval.ts` | PASS | golden 2/2 |');
+    expect(body).toContain('| `b.eval.ts` | FAIL | eval exited 1 |');
     // No base provided => no delta section, but a "no baseline" note instead.
     expect(body).not.toContain('Delta vs base');
     expect(body).toContain('No baseline');
@@ -94,9 +94,9 @@ describe('buildCommentBody', () => {
   it('renders a delta section when base results are provided', () => {
     const body = buildCommentBody(current, base);
     expect(body).toContain('### Delta vs base');
-    expect(body).toContain('🔴 Regressed:');
+    expect(body).toContain('Regressed:');
     expect(body).toContain('`b.eval.ts`');
-    expect(body).toContain('🟢 Fixed:');
+    expect(body).toContain('Fixed:');
     expect(body).toContain('`c.eval.ts`');
   });
 
