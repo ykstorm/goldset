@@ -83,6 +83,33 @@ describe('toEvalResult', () => {
     expect(combined.runners.grounding?.summary.passed).toBe(1);
     expect(combined.passed).toBe(true);
   });
+
+  it('merges two results from the same runner', async () => {
+    const a = await structural([{ id: 'a', input: 'x' }], {
+      llm: vi.fn().mockResolvedValue('yes'),
+      assertions: [{ type: 'contains', substring: 'yes' }],
+    });
+    const b = await structural([{ id: 'b', input: 'x' }], {
+      llm: vi.fn().mockResolvedValue('no'),
+      assertions: [{ type: 'contains', substring: 'yes' }],
+    });
+    const combined = toEvalResult(a, b);
+    expect(combined.runners.structural?.cases).toHaveLength(2);
+    expect(combined.runners.structural?.summary).toEqual({ passed: 1, failed: 1 });
+    expect(combined.passed).toBe(false);
+  });
+
+  it('omits volatile fields with { stable: true }', async () => {
+    const golden = await goldenDataset([{ id: 'g', input: 'x', expected: 'x' }], {
+      llm: vi.fn().mockResolvedValue('x'),
+    });
+    const stable = toEvalResult(golden, { stable: true });
+    expect(stable.timestamp).toBe('');
+    expect(stable.commit).toBe('');
+    expect(stable.branch).toBe('');
+    expect(stable.runners.goldenDataset).toBeDefined();
+    expect(stable.passed).toBe(true);
+  });
 });
 
 describe('grounding', () => {

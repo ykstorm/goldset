@@ -38,15 +38,5 @@ export type {
   AssertionFailure,
 } from './runners/structural';
 
-// Lower-level golden-dataset class API
-export {
-  GoldenDatasetRunner,
-  calculateSimilarity,
-  levenshteinDistance,
-} from './runners/golden';
-export type {
-  GoldenDatasetConfig,
-  GoldenTestCase,
-  EvaluationResult,
-  EvaluationSummary,
-} from './types';
+// Similarity utilities
+export { calculateSimilarity, levenshteinDistance } from './runners/golden';

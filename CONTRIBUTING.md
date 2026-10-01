@@ -15,7 +15,7 @@ npm test
 ```
 src/
   index.ts            public exports
-  types.ts            shared types for the golden runner
+  cache.ts            optional judge-verdict cache
   runners/
     api.ts            goldenDataset, llmJudge, grounding, structural, runEval
     golden.ts         Levenshtein similarity

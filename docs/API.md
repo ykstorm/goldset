@@ -71,6 +71,7 @@ interface JudgeConfig {
   rubric: string
   passThreshold?: number   // minimum score to pass; default 3
   verbose?: boolean
+  cache?: JudgeCache       // reuse verdicts; see "Caching judge verdicts"
 }
 
 interface JudgeResult {
@@ -186,8 +187,11 @@ Assertion types:
 ## runEval(...runnerResults) and toEvalResult(...runnerResults)
 
 `toEvalResult` combines runner results into the shape the GitHub Action consumes.
-`runEval` does the same, prints a human summary (or the JSON blob when invoked
-with `--output json`, as the Action does), and exits 1 if any runner failed.
+Two results from the same runner are merged (cases concatenated, summaries
+re-aggregated). Pass `{ stable: true }` as the last argument to omit the volatile
+`timestamp`/`commit`/`branch` fields for deterministic output. `runEval` does the
+same, prints a human summary (or the JSON blob when invoked with `--output json`,
+as the Action does), and exits 1 if any runner failed.
 
 ```ts
 interface EvalResult {
@@ -211,9 +215,19 @@ Exported helper used by the judge runners. Returns the trustworthy integer score
 (0–5) for a judge reply, or 0 when the reply is missing, non-numeric, or
 unparseable.
 
+## Caching judge verdicts
+
+`llmJudge` and `grounding` can reuse a judge's verdict for an identical
+`(runner, rubric/context, input, expected, output)`, since that is deterministic
+input to the judge. Pass a `cache` on the config, or set `GOLDSET_JUDGE_CACHE` to
+enable the default cache (a memory layer over a file at `.goldset-cache/judge.json`;
+set it to a path to choose the directory). Only the raw verdict is cached; scoring
+and clamping run every time.
+
 ## Environment variables
 
 | Variable | What it does |
 |----------|--------------|
 | `GOLDSET_JUDGE_PROVIDER` | Set by the Action to `openai`/`anthropic` so an eval can branch to a real provider; unset means `none`. |
+| `GOLDSET_JUDGE_CACHE` | Enable the judge verdict cache: `1`/`true` uses `.goldset-cache`, any other value is used as the cache directory. |
 | `GITHUB_SHA`, `GITHUB_REF_NAME` | Read by `toEvalResult` to stamp commit/branch into the result. |

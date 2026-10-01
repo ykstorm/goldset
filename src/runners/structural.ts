@@ -3,18 +3,12 @@
 
 export type AssertionType = 'json-schema' | 'regex' | 'contains' | 'tool-call-shape';
 
-/**
- * A single assertion to validate LLM output.
- */
-export interface Assertion {
-  type: AssertionType;
-  schema?: Record<string, unknown>; // JSON Schema for 'json-schema' type
-  pattern?: string | RegExp; // Regex pattern for 'regex' type
-  flags?: string; // Regex flags for 'regex' type (when pattern is a string)
-  substring?: string; // Substring to check for 'contains' type
-  toolName?: string; // Tool name to check for 'tool-call-shape' type
-  argCount?: number; // Expected arg count for 'tool-call-shape' type
-}
+/** A single assertion to validate LLM output, discriminated by `type`. */
+export type Assertion =
+  | { type: 'json-schema'; schema: Record<string, unknown> }
+  | { type: 'regex'; pattern: string | RegExp; flags?: string }
+  | { type: 'contains'; substring: string }
+  | { type: 'tool-call-shape'; toolName: string; argCount?: number };
 
 /**
  * Description of the first assertion that failed for a given output.
@@ -182,7 +176,10 @@ function applyAssertion(output: string, assertion: Assertion): AssertionFailure 
         ? validateToolCallShape(output, assertion.toolName, assertion.argCount)
         : { type: 'tool-call-shape', reason: 'no toolName provided' };
     default:
-      return { type: assertion.type, reason: 'unknown assertion type' };
+      return {
+        type: (assertion as { type: AssertionType }).type,
+        reason: 'unknown assertion type',
+      };
   }
 }
 

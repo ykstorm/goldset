@@ -28,6 +28,9 @@ coverage/
 # Action artifacts
 *.tgz
 
+# Judge verdict cache (opt-in via GOLDSET_JUDGE_CACHE)
+.goldset-cache/
+
 # Note: goldset-results.json is intentionally tracked — it is the committed
 # baseline the Action diffs each PR against. Do not git-ignore it.
 

@@ -1,7 +1,3 @@
-var __defProp = Object.defineProperty;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
-
 // src/runners/golden.ts
 var MAX_LEVENSHTEIN_LEN = 2e4;
 function levenshteinDistance(str1, str2) {
@@ -33,66 +29,6 @@ function calculateSimilarity(str1, str2) {
   }
   return 1 - distance / maxLength;
 }
-var GoldenDatasetRunner = class {
-  constructor(config = { threshold: 0.85 }) {
-    __publicField(this, "config");
-    this.config = config;
-  }
-  /**
-   * Evaluate a single test case against expected output
-   */
-  evaluate(testCase, actualOutput) {
-    const similarity = calculateSimilarity(
-      testCase.expectedOutput,
-      actualOutput
-    );
-    return {
-      testCaseId: testCase.id,
-      input: testCase.input,
-      expectedOutput: testCase.expectedOutput,
-      actualOutput,
-      similarity: Math.round(similarity * 100) / 100,
-      passed: similarity >= this.config.threshold
-    };
-  }
-  /**
-   * Evaluate multiple test cases and return summary
-   */
-  evaluateMany(testCases, actualOutputs) {
-    if (testCases.length !== actualOutputs.length) {
-      throw new Error(
-        `Mismatch: ${testCases.length} test cases but ${actualOutputs.length} outputs`
-      );
-    }
-    const results = testCases.map(
-      (testCase, index) => this.evaluate(testCase, actualOutputs[index])
-    );
-    const passedTests = results.filter((r) => r.passed).length;
-    const averageSimilarity = results.reduce((sum, r) => sum + r.similarity, 0) / results.length;
-    return {
-      totalTests: testCases.length,
-      passedTests,
-      failedTests: testCases.length - passedTests,
-      averageSimilarity: Math.round(averageSimilarity * 100) / 100,
-      results
-    };
-  }
-  /**
-   * Get the current threshold
-   */
-  getThreshold() {
-    return this.config.threshold;
-  }
-  /**
-   * Set the threshold
-   */
-  setThreshold(threshold) {
-    if (threshold < 0 || threshold > 1) {
-      throw new Error("Threshold must be between 0 and 1");
-    }
-    this.config.threshold = threshold;
-  }
-};
 
 // src/runners/structural.ts
 function validateJsonSchema(output, schema) {
@@ -211,7 +147,10 @@ function applyAssertion(output, assertion) {
     case "tool-call-shape":
       return assertion.toolName ? validateToolCallShape(output, assertion.toolName, assertion.argCount) : { type: "tool-call-shape", reason: "no toolName provided" };
     default:
-      return { type: assertion.type, reason: "unknown assertion type" };
+      return {
+        type: assertion.type,
+        reason: "unknown assertion type"
+      };
   }
 }
 function applyAssertions(output, assertions) {
@@ -220,6 +159,72 @@ function applyAssertions(output, assertions) {
     if (failure) return failure;
   }
   return null;
+}
+
+// src/cache.ts
+import { createHash } from "crypto";
+import * as fs from "fs";
+import * as path from "path";
+var PROMPT_VERSION = 1;
+function cacheKey(parts) {
+  const payload = {
+    v: PROMPT_VERSION,
+    runner: parts.runner,
+    rubric: parts.rubric,
+    input: parts.input,
+    expected: parts.expected ?? null,
+    output: parts.output
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+function memoryCache() {
+  const map = /* @__PURE__ */ new Map();
+  return {
+    get: (k) => map.get(k),
+    set: (k, v) => {
+      map.set(k, v);
+    }
+  };
+}
+function fileCache(dir = ".goldset-cache") {
+  const file = path.join(dir, "judge.json");
+  let store = {};
+  try {
+    store = JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    store = {};
+  }
+  return {
+    get: (k) => store[k],
+    set: (k, v) => {
+      store[k] = v;
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(store));
+      } catch {
+      }
+    }
+  };
+}
+function layeredCache(...layers) {
+  return {
+    get: (k) => {
+      for (const layer of layers) {
+        const v = layer.get(k);
+        if (v !== void 0) return v;
+      }
+      return void 0;
+    },
+    set: (k, v) => {
+      for (const layer of layers) layer.set(k, v);
+    }
+  };
+}
+function cacheFromEnv(env = process.env) {
+  const flag = env.GOLDSET_JUDGE_CACHE;
+  if (!flag || flag === "0" || flag === "false") return void 0;
+  const dir = flag === "1" || flag === "true" ? ".goldset-cache" : flag;
+  return layeredCache(memoryCache(), fileCache(dir));
 }
 
 // src/runners/api.ts
@@ -283,69 +288,65 @@ async function goldenDataset(cases, config) {
     }
   };
 }
-async function llmJudge(cases, config) {
-  const { llm, judge, rubric } = config;
+async function scoreWithJudge(runner, cases, config, rubricFor, buildPrompt) {
   const passThreshold = config.passThreshold ?? 3;
+  const cache = config.cache ?? cacheFromEnv();
   const results = [];
   for (const tc of cases) {
-    const output = await Promise.resolve(llm(tc.input));
-    const judgePrompt = `${JUDGE_PREAMBLE}
+    const output = await Promise.resolve(config.llm(tc.input));
+    const key = cacheKey({ runner, rubric: rubricFor(tc), input: tc.input, expected: tc.expected, output });
+    let verdict = cache?.get(key);
+    if (verdict === void 0) {
+      verdict = await Promise.resolve(config.judge(buildPrompt(tc, output)));
+      cache?.set(key, verdict);
+    }
+    const score = parseJudgeScore(verdict);
+    const reasoning = parseJudgeReason(verdict);
+    const passed2 = score >= passThreshold;
+    if (config.verbose) {
+      console.log(`[${runner}] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
+    }
+    results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
+  }
+  const passed = results.filter((r) => r.passed).length;
+  const avgScore = results.length ? round2(results.reduce((s, r) => s + r.score, 0) / results.length) : 0;
+  return { cases: results, summary: { passed, failed: results.length - passed, avgScore } };
+}
+async function llmJudge(cases, config) {
+  const { cases: scored, summary } = await scoreWithJudge(
+    "llmJudge",
+    cases,
+    config,
+    () => config.rubric,
+    (tc, output) => `${JUDGE_PREAMBLE}
 
-${tag("rubric", rubric)}
+${tag("rubric", config.rubric)}
 ${tag("input", tc.input)}
 ${tc.expected !== void 0 ? `${tag("expected", tc.expected)}
 ` : ""}${tag("output", output)}
 
-Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`;
-    const judgeText = await Promise.resolve(judge(judgePrompt));
-    const score = parseJudgeScore(judgeText);
-    const reasoning = parseJudgeReason(judgeText);
-    const passed2 = score >= passThreshold;
-    if (config.verbose) {
-      console.log(`[llmJudge] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
-    }
-    results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
-  }
-  const passed = results.filter((r) => r.passed).length;
-  const avgScore = results.length ? round2(results.reduce((s, r) => s + r.score, 0) / results.length) : 0;
-  return {
-    runner: "llmJudge",
-    cases: results,
-    summary: { passed, failed: results.length - passed, avgScore }
-  };
+Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`
+  );
+  return { runner: "llmJudge", cases: scored, summary };
 }
 async function grounding(cases, config) {
-  const { llm, judge } = config;
-  const passThreshold = config.passThreshold ?? 3;
-  const results = [];
-  for (const tc of cases) {
-    const output = await Promise.resolve(llm(tc.input));
-    const contextBlock = tc.context.map((c, i) => `[${i + 1}] ${escapeTagged(c)}`).join("\n");
-    const judgePrompt = `${GROUNDING_PREAMBLE}
+  const contextOf = (tc) => tc.context.map((c, i) => `[${i + 1}] ${escapeTagged(c)}`).join("\n");
+  const { cases: scored, summary } = await scoreWithJudge(
+    "grounding",
+    cases,
+    config,
+    contextOf,
+    (tc, output) => `${GROUNDING_PREAMBLE}
 
 <context>
-${contextBlock}
+${contextOf(tc)}
 </context>
 ${tag("input", tc.input)}
 ${tag("output", output)}
 
-Using ONLY the <context>, decide whether every factual claim in <output> is supported. Score 0 (claims the context does not support) to 5 (every claim is grounded). Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`;
-    const judgeText = await Promise.resolve(judge(judgePrompt));
-    const score = parseJudgeScore(judgeText);
-    const reasoning = parseJudgeReason(judgeText);
-    const passed2 = score >= passThreshold;
-    if (config.verbose) {
-      console.log(`[grounding] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
-    }
-    results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
-  }
-  const passed = results.filter((r) => r.passed).length;
-  const avgScore = results.length ? round2(results.reduce((s, r) => s + r.score, 0) / results.length) : 0;
-  return {
-    runner: "grounding",
-    cases: results,
-    summary: { passed, failed: results.length - passed, avgScore }
-  };
+Using ONLY the <context>, decide whether every factual claim in <output> is supported. Score 0 (claims the context does not support) to 5 (every claim is grounded). Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`
+  );
+  return { runner: "grounding", cases: scored, summary };
 }
 async function structural(cases, config) {
   const { llm, assertions } = config;
@@ -371,18 +372,57 @@ async function structural(cases, config) {
     summary: { passed, failed: results.length - passed }
   };
 }
-function toEvalResult(...runnerResults) {
+function isRunnerResult(v) {
+  return "runner" in v;
+}
+function mergeSameRunner(a, b) {
+  const cases = [...a.cases, ...b.cases];
+  const passed = a.summary.passed + b.summary.passed;
+  const failed = a.summary.failed + b.summary.failed;
+  const total = cases.length;
+  if (a.runner === "goldenDataset") {
+    const c2 = cases;
+    return {
+      runner: "goldenDataset",
+      cases: c2,
+      summary: {
+        passed,
+        failed,
+        passRate: total ? round2(passed / total) : 0,
+        avgSimilarity: total ? round2(c2.reduce((s, r) => s + r.similarity, 0) / total) : 0
+      }
+    };
+  }
+  if (a.runner === "structural") {
+    return { runner: "structural", cases, summary: { passed, failed } };
+  }
+  const c = cases;
+  return {
+    runner: a.runner,
+    cases: c,
+    summary: { passed, failed, avgScore: total ? round2(c.reduce((s, r) => s + r.score, 0) / total) : 0 }
+  };
+}
+function toEvalResult(...args) {
+  let stable = false;
+  const last = args[args.length - 1];
+  if (last && !isRunnerResult(last)) {
+    stable = last.stable ?? false;
+    args = args.slice(0, -1);
+  }
+  const runnerResults = args;
   const runners = {};
   let failed = 0;
   for (const r of runnerResults) {
-    runners[r.runner] = r;
+    const existing = runners[r.runner];
+    runners[r.runner] = existing ? mergeSameRunner(existing, r) : r;
     failed += r.summary.failed;
   }
   return {
     version: 1,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    commit: process.env.GITHUB_SHA ?? "",
-    branch: process.env.GITHUB_REF_NAME ?? "",
+    timestamp: stable ? "" : (/* @__PURE__ */ new Date()).toISOString(),
+    commit: stable ? "" : process.env.GITHUB_SHA ?? "",
+    branch: stable ? "" : process.env.GITHUB_REF_NAME ?? "",
     runners,
     passed: failed === 0
   };
@@ -403,7 +443,6 @@ async function runEval(...runnerResults) {
   return result;
 }
 export {
-  GoldenDatasetRunner,
   applyAssertions,
   calculateSimilarity,
   goldenDataset,

@@ -24653,22 +24653,20 @@ async function fetchBaseResults(octokit, owner, repo, ref) {
     return void 0;
   }
 }
-function parsePassEnv(raw) {
-  return raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+function readInputs() {
+  const passEnv = (getInput("pass-env") || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  return {
+    evalDir: getInput("eval-dir") || "evals",
+    judgeProvider: normalizeProvider(getInput("judge-provider") || "none"),
+    failOnRegression: (getInput("fail-on-regression") || "true") !== "false",
+    commentOnPR: (getInput("comment-on-pr") || "true") !== "false",
+    timeoutMs: Number(getInput("timeout-ms") || "0") || 0,
+    passEnv,
+    // Input wins over the ambient GITHUB_TOKEN so a caller can pass a scoped token.
+    token: getInput("github-token") || process.env.GITHUB_TOKEN || ""
+  };
 }
-async function run() {
-  maskSecrets();
-  const evalDir = getInput("eval-dir") || "evals";
-  const judgeProvider = normalizeProvider(getInput("judge-provider") || "none");
-  const failOnRegression = (getInput("fail-on-regression") || "true") !== "false";
-  const commentOnPR = (getInput("comment-on-pr") || "true") !== "false";
-  const timeoutMs = Number(getInput("timeout-ms") || "0") || 0;
-  const passEnv = parsePassEnv(getInput("pass-env") || "");
-  info(`[goldset] eval-dir=${evalDir} judge-provider=${judgeProvider}`);
-  const results = await runEvals({ evalDir, judgeProvider, timeoutMs, passEnv });
-  if (results.length === 0) {
-    warning(`[goldset] no *.eval.ts files found under ${evalDir}/`);
-  }
+function writeResults(results) {
   fs4.writeFileSync(RESULTS_PATH, JSON.stringify(results, null, 2));
   setOutput("results-path", path2.resolve(RESULTS_PATH));
   const total = results.length;
@@ -24678,31 +24676,40 @@ async function run() {
   setOutput("failed", String(failed));
   setOutput("total", String(total));
   setOutput("all-passed", failed === 0 ? "true" : "false");
-  const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
+  return { total, passed, failed };
+}
+async function computeRegressionAndComment(results, inputs) {
   const pr = context2.payload.pull_request;
-  let baseResults;
-  let regressed = false;
-  if (token && pr) {
-    const octokit = getOctokit(token);
-    const { owner, repo } = context2.repo;
-    const baseRef = pr.base?.ref;
-    baseResults = baseRef ? await fetchBaseResults(octokit, owner, repo, baseRef) : void 0;
-    regressed = isRegression(results, baseResults);
-    if (commentOnPR) {
-      const body = buildCommentBody(results, baseResults);
-      const api = {
-        listComments: (a) => octokit.rest.issues.listComments(a),
-        createComment: (a) => octokit.rest.issues.createComment(a),
-        updateComment: (a) => octokit.rest.issues.updateComment(a)
-      };
-      const action = await postComment(api, { owner, repo, issueNumber: pr.number }, body);
-      info(`[goldset] PR comment ${action}`);
+  if (!inputs.token || !pr) {
+    if (inputs.commentOnPR && !pr) {
+      info("[goldset] not a pull_request event, skipping PR comment");
+    } else if (inputs.commentOnPR && !inputs.token) {
+      warning("[goldset] GITHUB_TOKEN not available, skipping PR comment");
     }
-  } else if (commentOnPR && !pr) {
-    info("[goldset] not a pull_request event \u2014 skipping PR comment");
-  } else if (commentOnPR && !token) {
-    warning("[goldset] GITHUB_TOKEN not available \u2014 skipping PR comment");
+    return false;
   }
+  const octokit = getOctokit(inputs.token);
+  const { owner, repo } = context2.repo;
+  const baseRef = pr.base?.ref;
+  const baseResults = baseRef ? await fetchBaseResults(octokit, owner, repo, baseRef) : void 0;
+  const regressed = isRegression(results, baseResults);
+  if (inputs.commentOnPR) {
+    const api = {
+      listComments: (a) => octokit.rest.issues.listComments(a),
+      createComment: (a) => octokit.rest.issues.createComment(a),
+      updateComment: (a) => octokit.rest.issues.updateComment(a)
+    };
+    const action = await postComment(
+      api,
+      { owner, repo, issueNumber: pr.number },
+      buildCommentBody(results, baseResults)
+    );
+    info(`[goldset] PR comment ${action}`);
+  }
+  return regressed;
+}
+async function writeSummary(results) {
+  if (!process.env.GITHUB_STEP_SUMMARY) return;
   const rows = [
     [
       { data: "eval", header: true },
@@ -24715,15 +24722,30 @@ async function run() {
       { data: r.summary ?? r.error ?? "" }
     ])
   ];
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    await summary.addHeading("Goldset Eval Results").addTable(rows).write();
+  await summary.addHeading("Goldset Eval Results").addTable(rows).write();
+}
+async function run() {
+  maskSecrets();
+  const inputs = readInputs();
+  info(`[goldset] eval-dir=${inputs.evalDir} judge-provider=${inputs.judgeProvider}`);
+  const results = await runEvals({
+    evalDir: inputs.evalDir,
+    judgeProvider: inputs.judgeProvider,
+    timeoutMs: inputs.timeoutMs,
+    passEnv: inputs.passEnv
+  });
+  if (results.length === 0) {
+    warning(`[goldset] no *.eval.ts files found under ${inputs.evalDir}/`);
   }
+  const { total, passed, failed } = writeResults(results);
+  const regressed = await computeRegressionAndComment(results, inputs);
+  await writeSummary(results);
   info(`[goldset] ${passed}/${total} eval files passed`);
   if (failed > 0) {
     setFailed(`Goldset: ${failed}/${total} eval file(s) failed`);
     process.exit(1);
   }
-  if (failOnRegression && regressed) {
+  if (inputs.failOnRegression && regressed) {
     setFailed("Goldset: regression detected vs base branch");
     process.exit(1);
   }

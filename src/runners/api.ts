@@ -2,6 +2,7 @@
 // toEvalResult/runEval harness. Each runner returns { runner, cases, summary }.
 import { calculateSimilarity } from './golden';
 import { applyAssertions, type Assertion, type AssertionFailure } from './structural';
+import { cacheFromEnv, cacheKey, type JudgeCache } from '../cache';
 
 export type LLMFn = (input: string) => Promise<string> | string;
 export type JudgeFn = (prompt: string) => Promise<string> | string;
@@ -134,6 +135,66 @@ export async function goldenDataset(
   };
 }
 
+// Shared judge-scored result shape for llmJudge and grounding.
+
+export interface JudgeScoredCaseResult {
+  id: string;
+  passed: boolean;
+  score: number;
+  output: string;
+  reasoning?: string;
+  passThreshold: number;
+}
+
+interface JudgeScoredSummary {
+  passed: number;
+  failed: number;
+  avgScore: number;
+}
+
+/**
+ * Shared engine for the two judge-scored runners. For each case it gets the model
+ * output, builds a prompt, asks the judge (reusing a cached verdict when one is
+ * configured), and clamps the score. `rubricFor` supplies the content used both in
+ * the prompt and the cache key (the rubric for llmJudge, the context for grounding).
+ */
+async function scoreWithJudge<C extends { id: string; input: string; expected?: string }>(
+  runner: 'llmJudge' | 'grounding',
+  cases: C[],
+  config: { llm: LLMFn; judge: JudgeFn; passThreshold?: number; verbose?: boolean; cache?: JudgeCache },
+  rubricFor: (tc: C) => string,
+  buildPrompt: (tc: C, output: string) => string
+): Promise<{ cases: JudgeScoredCaseResult[]; summary: JudgeScoredSummary }> {
+  const passThreshold = config.passThreshold ?? 3;
+  const cache = config.cache ?? cacheFromEnv();
+
+  const results: JudgeScoredCaseResult[] = [];
+  for (const tc of cases) {
+    const output = await Promise.resolve(config.llm(tc.input));
+    const key = cacheKey({ runner, rubric: rubricFor(tc), input: tc.input, expected: tc.expected, output });
+
+    let verdict = cache?.get(key);
+    if (verdict === undefined) {
+      verdict = await Promise.resolve(config.judge(buildPrompt(tc, output)));
+      cache?.set(key, verdict);
+    }
+
+    const score = parseJudgeScore(verdict);
+    const reasoning = parseJudgeReason(verdict);
+    const passed = score >= passThreshold;
+    if (config.verbose) {
+      console.log(`[${runner}] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
+    }
+    results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
+  }
+
+  const passed = results.filter((r) => r.passed).length;
+  const avgScore = results.length
+    ? round2(results.reduce((s, r) => s + r.score, 0) / results.length)
+    : 0;
+  return { cases: results, summary: { passed, failed: results.length - passed, avgScore } };
+}
+
 // llmJudge
 
 export interface JudgeCase {
@@ -148,74 +209,37 @@ export interface JudgeConfig {
   rubric: string;
   passThreshold?: number;
   verbose?: boolean;
+  cache?: JudgeCache;
 }
 
-export interface JudgeCaseResult {
-  id: string;
-  passed: boolean;
-  score: number;
-  output: string;
-  reasoning?: string;
-  passThreshold: number;
-}
+export type JudgeCaseResult = JudgeScoredCaseResult;
 
 export interface JudgeResult {
   runner: 'llmJudge';
   cases: JudgeCaseResult[];
-  summary: {
-    passed: number;
-    failed: number;
-    avgScore: number;
-  };
+  summary: JudgeScoredSummary;
 }
 
-export async function llmJudge(
-  cases: JudgeCase[],
-  config: JudgeConfig
-): Promise<JudgeResult> {
-  const { llm, judge, rubric } = config;
-  const passThreshold = config.passThreshold ?? 3;
+export async function llmJudge(cases: JudgeCase[], config: JudgeConfig): Promise<JudgeResult> {
+  const { cases: scored, summary } = await scoreWithJudge(
+    'llmJudge',
+    cases,
+    config,
+    () => config.rubric,
+    (tc, output) =>
+      `${JUDGE_PREAMBLE}
 
-  const results: JudgeCaseResult[] = [];
-  for (const tc of cases) {
-    const output = await Promise.resolve(llm(tc.input));
-    const judgePrompt = `${JUDGE_PREAMBLE}
-
-${tag('rubric', rubric)}
+${tag('rubric', config.rubric)}
 ${tag('input', tc.input)}
 ${tc.expected !== undefined ? `${tag('expected', tc.expected)}\n` : ''}${tag('output', output)}
 
-Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`;
-
-    const judgeText = await Promise.resolve(judge(judgePrompt));
-
-    const score = parseJudgeScore(judgeText);
-    const reasoning = parseJudgeReason(judgeText);
-
-    const passed = score >= passThreshold;
-    if (config.verbose) {
-      console.log(`[llmJudge] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
-    }
-    results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
-  }
-
-  const passed = results.filter((r) => r.passed).length;
-  const avgScore = results.length
-    ? round2(results.reduce((s, r) => s + r.score, 0) / results.length)
-    : 0;
-
-  return {
-    runner: 'llmJudge',
-    cases: results,
-    summary: { passed, failed: results.length - passed, avgScore },
-  };
+Score the <output> from 0 to 5 using the <rubric>. Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`
+  );
+  return { runner: 'llmJudge', cases: scored, summary };
 }
 
-// grounding (faithfulness)
-// Catches RAG hallucination: the model's answer must be supported by the
-// provided context. A judge scores how grounded the output is in `context`;
-// unsupported/invented claims lower the score. Same judge-scored shape as
-// llmJudge, but with an explicit context set instead of a free-form rubric.
+// grounding (faithfulness): the answer must be supported by the provided context.
+// Same judge-scored shape as llmJudge, with an explicit context instead of a rubric.
 
 export interface GroundingCase {
   id: string;
@@ -229,70 +253,37 @@ export interface GroundingConfig {
   judge: JudgeFn;
   passThreshold?: number;
   verbose?: boolean;
+  cache?: JudgeCache;
 }
 
-export interface GroundingCaseResult {
-  id: string;
-  passed: boolean;
-  score: number;
-  output: string;
-  reasoning?: string;
-  passThreshold: number;
-}
+export type GroundingCaseResult = JudgeScoredCaseResult;
 
 export interface GroundingResult {
   runner: 'grounding';
   cases: GroundingCaseResult[];
-  summary: {
-    passed: number;
-    failed: number;
-    avgScore: number;
-  };
+  summary: JudgeScoredSummary;
 }
 
-export async function grounding(
-  cases: GroundingCase[],
-  config: GroundingConfig
-): Promise<GroundingResult> {
-  const { llm, judge } = config;
-  const passThreshold = config.passThreshold ?? 3;
-
-  const results: GroundingCaseResult[] = [];
-  for (const tc of cases) {
-    const output = await Promise.resolve(llm(tc.input));
-    const contextBlock = tc.context.map((c, i) => `[${i + 1}] ${escapeTagged(c)}`).join('\n');
-    const judgePrompt = `${GROUNDING_PREAMBLE}
+export async function grounding(cases: GroundingCase[], config: GroundingConfig): Promise<GroundingResult> {
+  const contextOf = (tc: GroundingCase): string =>
+    tc.context.map((c, i) => `[${i + 1}] ${escapeTagged(c)}`).join('\n');
+  const { cases: scored, summary } = await scoreWithJudge(
+    'grounding',
+    cases,
+    config,
+    contextOf,
+    (tc, output) =>
+      `${GROUNDING_PREAMBLE}
 
 <context>
-${contextBlock}
+${contextOf(tc)}
 </context>
 ${tag('input', tc.input)}
 ${tag('output', output)}
 
-Using ONLY the <context>, decide whether every factual claim in <output> is supported. Score 0 (claims the context does not support) to 5 (every claim is grounded). Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`;
-
-    const judgeText = await Promise.resolve(judge(judgePrompt));
-
-    const score = parseJudgeScore(judgeText);
-    const reasoning = parseJudgeReason(judgeText);
-
-    const passed = score >= passThreshold;
-    if (config.verbose) {
-      console.log(`[grounding] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
-    }
-    results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
-  }
-
-  const passed = results.filter((r) => r.passed).length;
-  const avgScore = results.length
-    ? round2(results.reduce((s, r) => s + r.score, 0) / results.length)
-    : 0;
-
-  return {
-    runner: 'grounding',
-    cases: results,
-    summary: { passed, failed: results.length - passed, avgScore },
-  };
+Using ONLY the <context>, decide whether every factual claim in <output> is supported. Score 0 (claims the context does not support) to 5 (every claim is grounded). Respond with only a JSON object: {"score": <integer 0-5>, "reason": <string>}.`
+  );
+  return { runner: 'grounding', cases: scored, summary };
 }
 
 // structural
@@ -372,23 +363,76 @@ export interface EvalResult {
 
 type AnyRunnerResult = GoldenResult | JudgeResult | StructuralResult | GroundingResult;
 
+/** Options object `toEvalResult`/`runEval` accept as a trailing argument. */
+export interface ToEvalResultOptions {
+  /** Omit the volatile timestamp/commit/branch fields for deterministic output. */
+  stable?: boolean;
+}
+
+function isRunnerResult(v: AnyRunnerResult | ToEvalResultOptions): v is AnyRunnerResult {
+  return 'runner' in v;
+}
+
+/** Merge two results from the same runner by concatenating cases and re-aggregating. */
+function mergeSameRunner(a: AnyRunnerResult, b: AnyRunnerResult): AnyRunnerResult {
+  const cases = [...a.cases, ...b.cases] as AnyRunnerResult['cases'];
+  const passed = a.summary.passed + b.summary.passed;
+  const failed = a.summary.failed + b.summary.failed;
+  const total = cases.length;
+  if (a.runner === 'goldenDataset') {
+    const c = cases as GoldenCaseResult[];
+    return {
+      runner: 'goldenDataset',
+      cases: c,
+      summary: {
+        passed,
+        failed,
+        passRate: total ? round2(passed / total) : 0,
+        avgSimilarity: total ? round2(c.reduce((s, r) => s + r.similarity, 0) / total) : 0,
+      },
+    };
+  }
+  if (a.runner === 'structural') {
+    return { runner: 'structural', cases: cases as StructuralCaseResult[], summary: { passed, failed } };
+  }
+  // llmJudge / grounding share the judge-scored summary.
+  const c = cases as JudgeScoredCaseResult[];
+  return {
+    runner: a.runner,
+    cases: c,
+    summary: { passed, failed, avgScore: total ? round2(c.reduce((s, r) => s + r.score, 0) / total) : 0 },
+  } as AnyRunnerResult;
+}
+
 /**
- * Combine one or more runner results into the shared `EvalResult` shape that
- * the GitHub Action's diff engine consumes. `passed` is true only if every
- * runner had zero failures.
+ * Combine runner results into the shared `EvalResult` shape the Action consumes.
+ * Two results from the same runner are merged. `passed` is true only if every
+ * runner had zero failures. Pass `{ stable: true }` as the last argument to omit
+ * the volatile timestamp/commit/branch fields.
  */
-export function toEvalResult(...runnerResults: AnyRunnerResult[]): EvalResult {
+export function toEvalResult(
+  ...args: (AnyRunnerResult | ToEvalResultOptions)[]
+): EvalResult {
+  let stable = false;
+  const last = args[args.length - 1];
+  if (last && !isRunnerResult(last)) {
+    stable = last.stable ?? false;
+    args = args.slice(0, -1);
+  }
+  const runnerResults = args as AnyRunnerResult[];
+
   const runners: EvalResult['runners'] = {};
   let failed = 0;
   for (const r of runnerResults) {
-    runners[r.runner] = r as never;
+    const existing = runners[r.runner] as AnyRunnerResult | undefined;
+    runners[r.runner] = (existing ? mergeSameRunner(existing, r) : r) as never;
     failed += r.summary.failed;
   }
   return {
     version: 1,
-    timestamp: new Date().toISOString(),
-    commit: process.env.GITHUB_SHA ?? '',
-    branch: process.env.GITHUB_REF_NAME ?? '',
+    timestamp: stable ? '' : new Date().toISOString(),
+    commit: stable ? '' : process.env.GITHUB_SHA ?? '',
+    branch: stable ? '' : process.env.GITHUB_REF_NAME ?? '',
     runners,
     passed: failed === 0,
   };

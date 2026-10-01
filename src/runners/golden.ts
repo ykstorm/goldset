@@ -1,9 +1,4 @@
-import type {
-  GoldenDatasetConfig,
-  GoldenTestCase,
-  EvaluationResult,
-  EvaluationSummary,
-} from '../types';
+// Levenshtein similarity used by the goldenDataset runner in ./api.ts.
 
 /** Cap on each string's length, to bound the O(m*n) distance computation. */
 const MAX_LEVENSHTEIN_LEN = 20_000;
@@ -49,86 +44,6 @@ function calculateSimilarity(str1: string, str2: string): number {
   }
   
   return 1 - distance / maxLength;
-}
-
-/**
- * Golden dataset runner for evaluating AI outputs
- */
-export class GoldenDatasetRunner {
-  private config: GoldenDatasetConfig;
-
-  constructor(config: GoldenDatasetConfig = { threshold: 0.85 }) {
-    this.config = config;
-  }
-
-  /**
-   * Evaluate a single test case against expected output
-   */
-  evaluate(
-    testCase: GoldenTestCase,
-    actualOutput: string
-  ): EvaluationResult {
-    const similarity = calculateSimilarity(
-      testCase.expectedOutput,
-      actualOutput
-    );
-    
-    return {
-      testCaseId: testCase.id,
-      input: testCase.input,
-      expectedOutput: testCase.expectedOutput,
-      actualOutput,
-      similarity: Math.round(similarity * 100) / 100,
-      passed: similarity >= this.config.threshold,
-    };
-  }
-
-  /**
-   * Evaluate multiple test cases and return summary
-   */
-  evaluateMany(
-    testCases: GoldenTestCase[],
-    actualOutputs: string[]
-  ): EvaluationSummary {
-    if (testCases.length !== actualOutputs.length) {
-      throw new Error(
-        `Mismatch: ${testCases.length} test cases but ${actualOutputs.length} outputs`
-      );
-    }
-
-    const results: EvaluationResult[] = testCases.map((testCase, index) =>
-      this.evaluate(testCase, actualOutputs[index])
-    );
-
-    const passedTests = results.filter((r) => r.passed).length;
-    const averageSimilarity =
-      results.reduce((sum, r) => sum + r.similarity, 0) / results.length;
-
-    return {
-      totalTests: testCases.length,
-      passedTests,
-      failedTests: testCases.length - passedTests,
-      averageSimilarity: Math.round(averageSimilarity * 100) / 100,
-      results,
-    };
-  }
-
-  /**
-   * Get the current threshold
-   */
-  getThreshold(): number {
-    return this.config.threshold;
-  }
-
-  /**
-   * Set the threshold
-   */
-  setThreshold(threshold: number): void {
-    if (threshold < 0 || threshold > 1) {
-      throw new Error('Threshold must be between 0 and 1');
-    }
-    this.config.threshold = threshold;
-  }
 }
 
 export { calculateSimilarity, levenshteinDistance };
