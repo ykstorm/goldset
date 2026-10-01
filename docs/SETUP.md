@@ -1,228 +1,146 @@
-# Goldset Setup Guide
+# Goldset setup guide
 
-A step-by-step walkthrough from zero to CI-integrated AI evals.
-
----
+From zero to a CI-integrated AI eval gate.
 
 ## Before you start
 
-You'll need:
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - A GitHub repo for your AI app
-- An API key for your LLM (OpenAI, Anthropic, etc.)
+- An API key for your LLM, if your evals call a real provider
 
----
-
-## Step 1: Install Goldset
+## 1. Install
 
 ```bash
-npm install @ykstormsorg/goldset tsx --save-dev
+npm install --save-dev @ykstormsorg/goldset tsx
 ```
 
-Or if you prefer as a prod dependency:
-```bash
-npm install @ykstormsorg/goldset tsx
-```
+`tsx` runs your `*.eval.ts` files; it is an optional peer dependency.
 
----
-
-## Step 2: Create an eval file
+## 2. Write an eval file
 
 ```ts
 // evals/my-app.eval.ts
-import { goldenDataset, llmJudge, structural } from '@ykstormsorg/goldset'
+import { goldenDataset, runEval } from '@ykstormsorg/goldset'
 
-// Your LLM — any provider
-const llm = (input) => import('openai').then(o =>
-  o.defaults({ apiKey: process.env.OPENAI_API_KEY }).chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: input }],
-  }).then(r => r.choices[0].message.content ?? '')
-)
+// Your LLM — any provider behind (input: string) => Promise<string>.
+const llm = async (input: string): Promise<string> => {
+  // call your model here
+  return 'some answer'
+}
 
-// Your judge LLM (can be the same model, different prompt)
-const judge = (rubricPrompt) => llm(rubricPrompt)
-```
-
-Start with one runner. The simplest is `goldenDataset`:
-
-```ts
-// evals/my-app.eval.ts
-import { goldenDataset } from '@ykstormsorg/goldset'
-
-const llm = (input) => /* your LLM setup */
-
-await goldenDataset(
+const golden = await goldenDataset(
   [
-    { id: 'test-1', input: 'What is 2+2?', expected: '4' },
-    { id: 'test-2', input: 'Capital of France?', expected: 'Paris' },
+    { id: 'math', input: 'What is 2+2?', expected: '4' },
+    { id: 'capital', input: 'Capital of France?', expected: 'Paris' },
   ],
   { llm, threshold: 0.8 }
 )
+
+await runEval(golden)
 ```
 
-Run it:
+Run it locally:
+
 ```bash
 npx tsx evals/my-app.eval.ts
 ```
 
-You should see passing results. Iterate on your test cases until they reflect the behavior you care about.
+## 3. Build out the suite
 
----
-
-## Step 3: Build out your eval suite
-
-Add more cases. Add `llmJudge` for subjective qualities. Add `structural` for output shape.
+Add more cases and runners as failure modes appear: `llmJudge` for tone and
+helpfulness, `grounding` for RAG faithfulness, `structural` for output shape.
 
 ```ts
-// evals/my-app.eval.ts
-import { goldenDataset, llmJudge, structural } from '@ykstormsorg/goldset'
+import { goldenDataset, llmJudge, structural, runEval } from '@ykstormsorg/goldset'
 
-const llm = (input) => /* ... */
-const judge = (prompt) => /* ... */
+const llm = async (input: string): Promise<string> => { /* ... */ return '' }
+const judge = async (prompt: string): Promise<string> => { /* ... */ return '' }
 
-const goldenCases = [
-  // deterministic Q&A
-  { id: 'greeting', input: 'Hi', expected: 'Hello! How can I help?' },
-  { id: 'refund', input: 'I want a refund', expected: 'Email: support@example.com' },
-  { id: 'goodbye', input: 'bye', expected: 'Goodbye!' },
-]
+const golden = await goldenDataset(
+  [{ id: 'refund', input: 'I want a refund', expected: 'Email support@example.com' }],
+  { llm, threshold: 0.8 }
+)
 
-const judgeCases = [
-  // tone + helpfulness
-  { id: 'angry-user', input: 'THIS IS UNACCEPTABLE', expected: 'calm empathetic response' },
-  { id: 'confused', input: 'I dont understand', expected: 'clear explanation' },
-]
+const judged = await llmJudge(
+  [{ id: 'calm', input: 'THIS IS UNACCEPTABLE' }],
+  { llm, judge, rubric: 'Score 1-5: was the reply calm and helpful? 0 if it escalated.', passThreshold: 3 }
+)
 
-const structuralCases = [
-  // tool calling
-  { id: 'lookup-order', input: 'lookup order #42' },
-  { id: 'cancel-sub', input: 'cancel my subscription' },
-]
+const shape = await structural(
+  [{ id: 'lookup', input: 'lookup order 42' }],
+  { llm, assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }] }
+)
 
-await goldenDataset(goldenCases, { llm, threshold: 0.8 })
-await llmJudge(judgeCases, {
-  llm, judge,
-  rubric: 'Score 1-5: Was the response calm, clear, and helpful? 0 if it escalated.',
-  passThreshold: 3,
-})
-await structural(structuralCases, {
-  llm,
-  assertions: [
-    { type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 },
-    { type: 'tool-call-shape', toolName: 'cancelSubscription', argCount: 0 },
-  ],
-})
+await runEval(golden, judged, shape)
 ```
 
-Run locally until you're happy with the suite.
-
----
-
-## Step 4: Add the GitHub Action
-
-Create `.github/workflows/goldset.yml`:
+## 4. Add the GitHub Action
 
 ```yaml
+# .github/workflows/goldset.yml
 name: AI Eval
 
 on:
   pull_request:
-    paths:
-      - 'evals/**/*.eval.ts'
-      - 'src/**/*.ts'
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write   # only needed when comment-on-pr is true
 
 jobs:
   goldset:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # needed for base branch comparison
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - run: npm ci
-
-      - uses: ykstorm/goldset@v1
+      - uses: ykstorm/goldset@v1   # pin to a commit SHA in production
         with:
-          eval-file: evals/my-app.eval.ts
+          eval-dir: evals
+          judge-provider: none        # or openai | anthropic
           fail-on-regression: true
           comment-on-pr: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # if judge-provider: openai
 ```
 
-Commit and push. Open a PR that changes something in `src/`. The Action will run your evals and post a comment.
+Inputs:
 
----
+| Input | Default | Description |
+|-------|---------|-------------|
+| `eval-dir` | `evals` | Directory of `*.eval.ts` files (must be inside the workspace) |
+| `judge-provider` | `none` | `openai` \| `anthropic` \| `none`; sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key |
+| `fail-on-regression` | `true` | Fail when an eval that passed on the base branch now fails |
+| `comment-on-pr` | `true` | Post/update a results + delta comment on the PR |
+| `github-token` | `${{ github.token }}` | Token for the PR comment (wins over `GITHUB_TOKEN`) |
+| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |
+| `pass-env` | empty | Extra env var names to forward into each eval process |
 
-## Step 5: Handle regressions
+## 5. Enable the baseline
 
-When a test regresses, you'll see a red row in the PR comment with the delta:
+Commit a `goldset-results.json` on your default branch so the Action has a
+baseline to diff against. The Action writes this file on every run; commit the
+one produced on `main`. Until a baseline exists, the comment says "No baseline".
 
-| Test | Base | Head | Δ | Status |
-|------|------|------|---|--------|
-| `greeting` | 0.95 | 0.72 | **-0.23** | ⚠️ regression |
+## 6. Handle regressions
 
-Fix the root cause in your app code. If the baseline is legitimately wrong (e.g., the canonical answer changed), update the baseline with a commit that explains why:
-
-```bash
-git commit -m "docs: update greeting baseline (product renamed 'Hi' to 'Hello')"
-```
-
-The Action will pick up the new baseline on the next PR.
-
----
-
-## Step 6: Iterate
-
-Your eval suite is a living part of your codebase. As your app evolves:
-
-- Add new test cases for new features
-- Add new runners as failure modes appear
-- Refine rubrics as you learn what "good" means
-- Increase coverage as you build confidence
-
----
-
-## CI configuration options
-
-```yaml
-- uses: ykstorm/goldset@v1
-  with:
-    # Required
-    eval-file: evals/my-app.eval.ts
-
-    # Optional
-    fail-on-regression: true    # default: true — set false to just comment
-    comment-on-pr: true        # default: true — set false for silent mode
-    baseline-ref: main         # which branch to compare against (default: base branch)
-    timeout: 60000             # ms per LLM call override
-```
-
----
+When an eval regresses, the PR comment marks it in the "Delta vs base" section and
+the check fails. Fix the root cause in your app, or — if the canonical answer
+legitimately changed — update the eval and commit the new `goldset-results.json`
+with an explanation.
 
 ## Troubleshooting
 
-### "Command not found: goldset"
+- **"tsx is not installed"** — add it: `npm install -D tsx`.
+- **Evals pass locally but fail in CI** — make sure the LLM/judge API key is set
+  in CI secrets and referenced under `env:`. The Action does not inject it.
+- **No PR comment** — the event must be a pull request and a token must be
+  available; `permissions: pull-requests: write` is required to post.
 
-Install the package first: `npm install @ykstormsorg/goldset`
-
-### Evals pass locally but fail in CI
-
-Check that `OPENAI_API_KEY` (or your LLM API key) is set in CI secrets. The Action does not inject it automatically.
-
-### Timeout errors
-
-Increase the timeout: `timeout: 60000` in the Action config, or `timeout: 60_000` in your runner config.
-
-### All tests pass but the check still fails
-
-The Action writes results to `dist/eval-results.json`. Make sure your eval file creates that directory, or run the Action with `comment-on-pr: false` first to debug.
-
----
-
-For architecture diagrams, see [architecture.md](./architecture.md).
-For API details, see [API.md](./API.md).
+See [API.md](./API.md) for the full API and [architecture.md](./architecture.md)
+for how the pieces fit together.

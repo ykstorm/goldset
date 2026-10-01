@@ -7,7 +7,6 @@
 [![npm](https://img.shields.io/npm/v/@ykstormsorg/goldset.svg)](https://npmjs.com/package/@ykstormsorg/goldset)
 [![CI](https://github.com/ykstorm/goldset/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/goldset/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-goldset.lakshyaraj.dev-blue)](https://goldset.lakshyaraj.dev)
 
 ---
 
@@ -35,8 +34,6 @@ prompt-adjacent merges on behavioral evals the same way type checks gate code:
 the runners execute in CI, post a delta-vs-base comment on the pull request, and
 **block the merge** when a golden case drifts, a judge rubric fails, or an output
 shape breaks. Not a dashboard someone remembers to open — a check that fails.
-The judge itself is calibrated against a human-labeled set before it earns that
-gate authority, so a nondeterministic scorer never gets to fail a build on a whim.
 
 ---
 

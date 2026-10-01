@@ -9,7 +9,7 @@
  * it reaches the markdown table.
  */
 
-/** One row of `goldset-results.json` — the per-eval-file result. */
+/** One row of `goldset-results.json` — the result for a single eval file. */
 export interface EvalFileResult {
   file: string;
   passed: boolean;

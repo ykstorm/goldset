@@ -1,13 +1,11 @@
 # Contributing to Goldset
 
-Thank you for your interest in contributing!
-
 ## Dev setup
 
 ```bash
 git clone https://github.com/ykstorm/goldset.git
 cd goldset
-npm install
+npm ci
 npm run build
 npm test
 ```
@@ -16,82 +14,61 @@ npm test
 
 ```
 src/
-  index.ts          # public exports
-  cli.ts            # CLI entrypoint
-  types.ts          # shared TypeScript types
+  index.ts            public exports
+  types.ts            shared types for the golden runner
   runners/
-    golden.ts       # goldenDataset runner
-    judge.ts        # llmJudge runner
-    structural.ts   # structural runner
+    api.ts            goldenDataset, llmJudge, grounding, structural, runEval
+    golden.ts         Levenshtein similarity
+    structural.ts     assertion vocabulary
 action/
-  index.ts          # GitHub Action entrypoint
+  index.ts            GitHub Action entry
+  run-evals.ts        discover + run *.eval.ts
+  post-comment.ts     PR comment + delta
 docs/
-  architecture.md   # system diagrams
-  API.md            # full API reference
-  SETUP.md          # step-by-step setup guide
-tests/
-  *.test.ts         # unit + integration tests
-fixtures/
-  *.yaml            # test case fixtures
-examples/
-  customer-support/ # example eval file
+  API.md              API reference
+  architecture.md     how the pieces fit
+  SETUP.md            setup guide
+tests/                vitest unit tests
+evals/                Goldset's own eval suite (dogfood)
+fixtures/evals/       fixture eval used by the public-action workflow
+examples/             example eval file
+bench/                timing + cost benchmarks
 ```
 
-## Adding a new assertion type to `structural`
+## Adding a structural assertion type
 
-1. Add the assertion type to `src/types.ts` under `StructuralAssertion`
-2. Implement the assertion logic in `src/runners/structural.ts`
-3. Add test cases in `tests/structural.test.ts`
-4. Add fixture cases in `fixtures/structural-test.yaml` if applicable
+1. Add the variant to the `Assertion` union in `src/runners/structural.ts`.
+2. Implement its validator in the same file and wire it into `applyAssertion`.
+3. Add tests in `tests/structural.test.ts`.
 
-## Adding a new runner
+## Adding a runner
 
-1. Create `src/runners/<name>.ts` — implement `RunnerResult` interface
-2. Export from `src/index.ts`
-3. Document in `docs/API.md` and `docs/architecture.md`
-4. Add tests
+1. Implement it in `src/runners/api.ts` returning `{ runner, cases, summary }`.
+2. Export it from `src/index.ts` and add its result to `toEvalResult`.
+3. Document it in `docs/API.md` and `docs/architecture.md`.
+4. Add tests.
 
-## Code standards
+## Standards
 
-- TypeScript strict mode
-- ESLint must pass (`npm run lint`)
-- Vitest for all tests
-- New public APIs need doc comments
+- TypeScript strict mode.
+- `npm run lint`, `npm run typecheck`, and `npm test` must pass.
+- `dist/` is committed; run `npm run build` and commit the result when you change
+  `src/` or `action/` (CI checks `dist/` is in sync).
+- New public APIs get doc comments.
 
 ## Commit messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-- `feat:` new feature
-- `fix:` bug fix
-- `docs:` documentation only
-- `test:` test only
-- `refactor:` code change that neither fixes a bug nor adds a feature
+Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`,
+`fix:`, `docs:`, `test:`, `refactor:`, `chore:`.
 
 ## Opening a PR
 
-1. Fork the repo
-2. Create a feature branch from `main`
-3. Make your changes + add tests
-4. Ensure `npm run lint && npm test` passes
-5. Open a PR with a clear description
+1. Branch from `main`.
+2. Make the change and add tests.
+3. Run `npm run lint && npm run typecheck && npm test && npm run build`.
+4. Open a PR with a clear description.
 
 ## Reporting bugs
 
-Please include:
-- Goldset version (`npm list @ykstormsorg/goldset`)
-- Node version (`node --version`)
-- A minimal reproduction (your eval file + LLM function stub)
-- Expected vs actual behavior
-
-## Suggesting features
-
-Open an issue with:
-- The problem you're solving
-- Why existing tools don't solve it
-- A rough sketch of the API you'd want
-
-We'll discuss before any implementation.
-
----
-
-For deployment docs (npm publish, Action release, docs deploy), see [DEPLOY.md](./DEPLOY.md).
+Include the Goldset version, your Node version, a minimal reproduction (your eval
+file plus an `llm` stub), and the expected vs actual behavior.
