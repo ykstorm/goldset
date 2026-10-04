@@ -53,8 +53,8 @@ const MAX_REGEX_INPUT = 100_000;
  * but it rejects the exponential shapes before they ever run.
  */
 function isReDoSRisk(source: string): boolean {
-  const groups: { bodyHasQuant: boolean }[] = [];
-  const stack: number[] = [];
+  // one flag per open group: has its body seen an unbounded quantifier yet
+  const open: boolean[] = [];
   let inClass = false;
   const unboundedAt = (i: number): boolean => {
     const c = source[i];
@@ -62,25 +62,24 @@ function isReDoSRisk(source: string): boolean {
     if (c === '{') return /^\{\d*,\}/.test(source.slice(i));
     return false;
   };
+  const markParent = (): void => {
+    if (open.length) open[open.length - 1] = true;
+  };
   for (let i = 0; i < source.length; i += 1) {
     const c = source[i];
     if (c === '\\') { i += 1; continue; } // skip the escaped char
     if (inClass) { if (c === ']') inClass = false; continue; }
     if (c === '[') { inClass = true; continue; }
-    if (c === '(') { stack.push(groups.length); groups.push({ bodyHasQuant: false }); continue; }
+    if (c === '(') { open.push(false); continue; }
     if (c === ')') {
-      const idx = stack.pop();
-      if (idx === undefined) continue;
+      if (!open.length) continue;
+      const bodyHasQuant = open.pop() as boolean;
       const quantified = unboundedAt(i + 1);
-      if (quantified && groups[idx].bodyHasQuant) return true;
-      if ((groups[idx].bodyHasQuant || quantified) && stack.length) {
-        groups[stack[stack.length - 1]].bodyHasQuant = true;
-      }
+      if (quantified && bodyHasQuant) return true;
+      if (bodyHasQuant || quantified) markParent();
       continue;
     }
-    if (unboundedAt(i) && stack.length) {
-      groups[stack[stack.length - 1]].bodyHasQuant = true;
-    }
+    if (unboundedAt(i)) markParent();
   }
   return false;
 }

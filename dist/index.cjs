@@ -95,14 +95,16 @@ function validateJsonSchema(output, schema) {
 }
 var MAX_REGEX_INPUT = 1e5;
 function isReDoSRisk(source) {
-  const groups = [];
-  const stack = [];
+  const open = [];
   let inClass = false;
   const unboundedAt = (i) => {
     const c = source[i];
     if (c === "*" || c === "+") return true;
     if (c === "{") return /^\{\d*,\}/.test(source.slice(i));
     return false;
+  };
+  const markParent = () => {
+    if (open.length) open[open.length - 1] = true;
   };
   for (let i = 0; i < source.length; i += 1) {
     const c = source[i];
@@ -119,23 +121,18 @@ function isReDoSRisk(source) {
       continue;
     }
     if (c === "(") {
-      stack.push(groups.length);
-      groups.push({ bodyHasQuant: false });
+      open.push(false);
       continue;
     }
     if (c === ")") {
-      const idx = stack.pop();
-      if (idx === void 0) continue;
+      if (!open.length) continue;
+      const bodyHasQuant = open.pop();
       const quantified = unboundedAt(i + 1);
-      if (quantified && groups[idx].bodyHasQuant) return true;
-      if ((groups[idx].bodyHasQuant || quantified) && stack.length) {
-        groups[stack[stack.length - 1]].bodyHasQuant = true;
-      }
+      if (quantified && bodyHasQuant) return true;
+      if (bodyHasQuant || quantified) markParent();
       continue;
     }
-    if (unboundedAt(i) && stack.length) {
-      groups[stack[stack.length - 1]].bodyHasQuant = true;
-    }
+    if (unboundedAt(i)) markParent();
   }
   return false;
 }
