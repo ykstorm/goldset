@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /** Bumped when the judge prompt template changes, to invalidate stale verdicts. */
-export const PROMPT_VERSION = 1;
+const PROMPT_VERSION = 1;
 
 export interface JudgeCache {
   get(key: string): string | undefined;
@@ -48,7 +48,7 @@ export function memoryCache(): JudgeCache {
 }
 
 /** On-disk cache under `dir`, so verdicts survive across runs. Best-effort. */
-export function fileCache(dir = '.goldset-cache'): JudgeCache {
+function fileCache(dir = '.goldset-cache'): JudgeCache {
   const file = path.join(dir, 'judge.json');
   let store: Record<string, string> = {};
   try {
