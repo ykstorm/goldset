@@ -121,20 +121,18 @@ function validateJsonSchema(output, schema) {
   if (!jsonTypeMatches(parsed, "object")) {
     return { type: "json-schema", reason: "output is not a JSON object" };
   }
-  const obj = parsed;
+  const reason = objectSchemaProblem(parsed, schema);
+  return reason ? { type: "json-schema", reason } : null;
+}
+function objectSchemaProblem(obj, schema) {
   const props = schema.properties ?? {};
   const required = Array.isArray(schema.required) ? schema.required : Object.keys(props);
-  for (const key of required) {
-    if (obj[key] === void 0 || obj[key] === null) {
-      return { type: "json-schema", reason: `missing property "${key}"` };
-    }
-  }
+  const missing = required.find((key) => obj[key] === void 0 || obj[key] === null);
+  if (missing !== void 0) return `missing property "${missing}"`;
   for (const [key, def] of Object.entries(props)) {
     const value = obj[key];
     if (value === void 0 || value === null || typeof def?.type !== "string") continue;
-    if (!jsonTypeMatches(value, def.type)) {
-      return { type: "json-schema", reason: `property "${key}" is not of type ${def.type}` };
-    }
+    if (!jsonTypeMatches(value, def.type)) return `property "${key}" is not of type ${def.type}`;
   }
   return null;
 }

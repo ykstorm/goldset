@@ -58,20 +58,20 @@ function validateJsonSchema(
   if (!jsonTypeMatches(parsed, 'object')) {
     return { type: 'json-schema', reason: 'output is not a JSON object' };
   }
-  const obj = parsed as Record<string, unknown>;
+  const reason = objectSchemaProblem(parsed as Record<string, unknown>, schema);
+  return reason ? { type: 'json-schema', reason } : null;
+}
+
+/** First problem with `obj` against an object schema's required list and property types, or null. */
+function objectSchemaProblem(obj: Record<string, unknown>, schema: Record<string, unknown>): string | null {
   const props = (schema.properties ?? {}) as Record<string, { type?: unknown } | undefined>;
   const required = Array.isArray(schema.required) ? (schema.required as string[]) : Object.keys(props);
-  for (const key of required) {
-    if (obj[key] === undefined || obj[key] === null) {
-      return { type: 'json-schema', reason: `missing property "${key}"` };
-    }
-  }
+  const missing = required.find((key) => obj[key] === undefined || obj[key] === null);
+  if (missing !== undefined) return `missing property "${missing}"`;
   for (const [key, def] of Object.entries(props)) {
     const value = obj[key];
     if (value === undefined || value === null || typeof def?.type !== 'string') continue;
-    if (!jsonTypeMatches(value, def.type)) {
-      return { type: 'json-schema', reason: `property "${key}" is not of type ${def.type}` };
-    }
+    if (!jsonTypeMatches(value, def.type)) return `property "${key}" is not of type ${def.type}`;
   }
   return null;
 }
