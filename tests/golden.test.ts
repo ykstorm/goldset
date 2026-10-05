@@ -20,13 +20,18 @@ describe('similarity utilities', () => {
 });
 
 describe('calculateSimilarity past the length cap', () => {
-  it('scores two strings that differ across their whole second half as very different', () => {
+  it('compares only the capped text, so text past the cap neither matches nor differs', () => {
     const a = 'a'.repeat(40_000);
     const b = 'a'.repeat(20_000) + 'b'.repeat(20_000);
-    // Only the first 20,000 characters are compared, and those are equal.
+    // The first 20,000 characters are equal, and that is all that is compared.
     expect(calculateSimilarity(a, b)).toBe(1);
+  });
+
+  // One 20,000 x 20,000 distance; about 3 s locally, longer under coverage.
+  it('divides by the capped length, not the full length', { timeout: 60_000 }, () => {
+    const a = 'a'.repeat(30_000);
     const c = 'b'.repeat(30_000);
-    // Capped at 20,000 on both sides, all different: 0, not 1 - 20000/30000.
+    // Capped at 20,000 on both sides and all different: 0, not 1 - 20000/30000.
     expect(calculateSimilarity(a, c)).toBe(0);
   });
 });
