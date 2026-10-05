@@ -47,8 +47,8 @@ The Action entry is `action/index.ts` (bundled to `dist/action.cjs`). It:
 4. If the event is a pull request and a token is present, fetches the base
    branch's committed `goldset-results.json`, computes the delta, and posts or
    updates one PR comment (`action/post-comment.ts`).
-5. Fails the check when any eval fails, or when `fail-on-regression` is on and an
-   eval that passed on the base branch now fails.
+5. Fails the check when any eval file fails. The failure message says when one
+   of them is a regression, meaning it passed on the base branch.
 
 ```mermaid
 sequenceDiagram

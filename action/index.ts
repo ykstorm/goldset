@@ -69,7 +69,6 @@ async function fetchBaseResults(
 interface Inputs {
   evalDir: string;
   judgeProvider: JudgeProvider;
-  failOnRegression: boolean;
   commentOnPR: boolean;
   timeoutMs: number;
   passEnv: string[];
@@ -84,7 +83,6 @@ function readInputs(): Inputs {
   return {
     evalDir: core.getInput('eval-dir') || 'evals',
     judgeProvider: normalizeProvider(core.getInput('judge-provider') || 'none'),
-    failOnRegression: (core.getInput('fail-on-regression') || 'true') !== 'false',
     commentOnPR: (core.getInput('comment-on-pr') || 'true') !== 'false',
     timeoutMs: Number(core.getInput('timeout-ms') || '0') || 0,
     passEnv,
@@ -133,12 +131,17 @@ async function computeRegressionAndComment(
       createComment: (a) => octokit.rest.issues.createComment(a),
       updateComment: (a) => octokit.rest.issues.updateComment(a),
     };
-    const action = await postComment(
-      api,
-      { owner, repo, issueNumber: pr.number },
-      buildCommentBody(results, baseResults)
-    );
-    core.info(`[goldset] PR comment ${action}`);
+    // A fork's token cannot write comments; the results and the gate still stand.
+    try {
+      const action = await postComment(
+        api,
+        { owner, repo, issueNumber: pr.number },
+        buildCommentBody(results, baseResults)
+      );
+      core.info(`[goldset] PR comment ${action}`);
+    } catch (err) {
+      core.warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
   return regressed;
 }
@@ -181,13 +184,12 @@ async function run(): Promise<void> {
 
   core.info(`[goldset] ${passed}/${total} eval files passed`);
 
+  // A regression is a file that passed on the base branch and fails here, so
+  // it is always among the failed files; one gate covers both.
   if (failed > 0) {
-    core.setFailed(`Goldset: ${failed}/${total} eval file(s) failed`);
-    process.exit(1);
-  }
-  if (inputs.failOnRegression && regressed) {
-    core.setFailed('Goldset: regression detected vs base branch');
-    process.exit(1);
+    const why = regressed ? ' (regression vs base branch)' : '';
+    core.setFailed(`Goldset: ${failed}/${total} eval file(s) failed${why}`);
+    process.exitCode = 1;
   }
 }
 

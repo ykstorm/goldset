@@ -144,9 +144,10 @@ export function parseEvalOutput(
   if (timedOut) {
     return { file: base, passed: false, error: 'eval timed out' };
   }
-  const trimmed = stdout.trim();
-  const start = trimmed.indexOf('{');
-  const jsonText = start >= 0 ? trimmed.slice(start) : '';
+  // runEval prints the result as the last JSON line on stdout; anything an
+  // eval printed before it (including a stray brace) is ignored.
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const jsonText = [...lines].reverse().find((l) => l.startsWith('{') && l.endsWith('}')) ?? '';
   try {
     const parsed = JSON.parse(jsonText) as {
       passed?: boolean;

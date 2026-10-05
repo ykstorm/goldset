@@ -12,8 +12,8 @@ All notable changes to this project are documented here. The format is based on
   `npx tsx`, which fetched and executed `tsx@latest` at runtime.
 - Contain `eval-dir` under the workspace and reject path traversal; add a
   per-eval timeout.
-- Build each eval process env from an allowlist plus a `pass-env` input and the
-  selected provider key only; mask provider keys and the token.
+- Build each eval process env from an allowlist, every `GOLDSET_*` variable, a
+  `pass-env` input and the selected provider key; mask provider keys and the token.
 - Wrap untrusted judge-prompt content in escaped named tags, and clamp the parsed
   judge score to an integer in [0, 5] so an embedded score cannot raise a verdict.
 - Reject catastrophic-backtracking regexes, drop the global/sticky flags, and cap

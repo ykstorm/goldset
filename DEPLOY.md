@@ -34,11 +34,12 @@ npm view @ykstormsorg/goldset
 
 ## 3. Release the Action
 
-The Action lives at the repo root and is versioned by the same tags. Move the
-major tag so consumers pinning `@v1` get the latest release in that major:
+The Action lives at the repo root and is versioned by the same tags. There is no
+moving major tag yet (the docs pin the exact release tag); once a 1.x release
+exists, add one so consumers can pin `@v1`:
 
 ```bash
-git tag -f v1 v0.2.5   # once 1.x exists, point v1 at the 1.x tag
+git tag -f v1 v1.x.y
 git push origin -f v1
 ```
 

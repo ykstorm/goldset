@@ -85,6 +85,16 @@ export function parseJudgeScore(text: string): number {
   return Math.round(Math.min(5, Math.max(0, raw)));
 }
 
+/** True when the verdict carries a finite numeric score, i.e. parseJudgeScore did not fall back to 0. */
+function hasJudgeScore(text: string): boolean {
+  try {
+    const raw = (JSON.parse(text) as { score?: unknown }).score;
+    return typeof raw === 'number' && Number.isFinite(raw);
+  } catch {
+    return false;
+  }
+}
+
 /** Best-effort extraction of the judge's free-text reason (never throws). */
 function parseJudgeReason(text: string): string | undefined {
   try {
@@ -113,7 +123,7 @@ export async function goldenDataset(
     );
     const passed = similarity >= threshold;
     if (config.verbose) {
-      console.log(`[goldenDataset] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (similarity ${similarity})`);
+      console.error(`[goldenDataset] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (similarity ${similarity})`);
     }
     results.push({ id: tc.id, passed, similarity, output, threshold });
   }
@@ -176,14 +186,15 @@ async function scoreWithJudge<C extends { id: string; input: string; expected?: 
     let verdict = cache?.get(key);
     if (verdict === undefined) {
       verdict = await Promise.resolve(config.judge(buildPrompt(tc, output)));
-      cache?.set(key, verdict);
+      // A reply with no readable score is not worth replaying on the next run.
+      if (hasJudgeScore(verdict)) cache?.set(key, verdict);
     }
 
     const score = parseJudgeScore(verdict);
     const reasoning = parseJudgeReason(verdict);
     const passed = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[${runner}] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
+      console.error(`[${runner}] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed, score, output, reasoning, passThreshold });
   }
@@ -327,7 +338,7 @@ export async function structural(
     const failure = applyAssertions(output, assertions);
     const passed = failure === null;
     if (config.verbose) {
-      console.log(`[structural] ${passed ? 'PASS' : 'FAIL'} ${tc.id}`);
+      console.error(`[structural] ${passed ? 'PASS' : 'FAIL'} ${tc.id}`);
     }
     results.push({
       id: tc.id,
@@ -442,7 +453,7 @@ export function toEvalResult(
  * Convenience harness for an `.eval.ts` file. Runs the provided runners,
  * prints a human summary, and — when invoked with `--output json` (as the
  * Goldset Action does) — prints the `EvalResult` JSON to stdout. Calls
- * `process.exit(1)` if any runner failed so the Action can gate the merge.
+ * Sets a non-zero exit code if any runner failed so the Action can gate the merge.
  */
 export async function runEval(
   ...runnerResults: AnyRunnerResult[]
@@ -452,8 +463,9 @@ export async function runEval(
     process.argv[process.argv.indexOf('--output') + 1] === 'json';
 
   if (jsonMode) {
-    // Machine-readable: the only thing on stdout is the JSON blob.
-    process.stdout.write(JSON.stringify(result));
+    // Machine-readable: the only thing on stdout is the JSON blob, on its own
+    // line, so the Action can find it after any noise an eval printed first.
+    process.stdout.write('\n' + JSON.stringify(result) + '\n');
   } else {
     for (const r of runnerResults) {
       const total = r.cases.length;
@@ -462,6 +474,9 @@ export async function runEval(
     }
   }
 
-  if (!result.passed) process.exit(1);
+  // process.exit() would drop whatever stdout has not flushed to the pipe
+  // yet; the Action has read truncated JSON that way. Setting the exit code
+  // lets the process drain and exit on its own.
+  if (!result.passed) process.exitCode = 1;
   return result;
 }

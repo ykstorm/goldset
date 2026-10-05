@@ -178,3 +178,18 @@ describe('judge prompt injection', () => {
     expect(result.cases[0].passed).toBe(false);
   });
 });
+
+describe('judge cache', () => {
+  it('does not cache a verdict without a numeric score, so the judge is asked again', async () => {
+    const { memoryCache } = await import('../src/index');
+    const cache = memoryCache();
+    const judge = vi.fn().mockResolvedValueOnce('sorry, I cannot score this').mockResolvedValueOnce('{"score": 5, "reason": "fine"}');
+    const cases: JudgeCase[] = [{ id: 'c', input: 'q', expected: 'a' }];
+    const config = { llm: vi.fn().mockResolvedValue('a'), judge, rubric: 'r', passThreshold: 3, cache };
+    const first = await llmJudge(cases, config);
+    const second = await llmJudge(cases, config);
+    expect(first.cases[0].score).toBe(0);
+    expect(second.cases[0].score).toBe(5);
+    expect(judge).toHaveBeenCalledTimes(2);
+  });
+});

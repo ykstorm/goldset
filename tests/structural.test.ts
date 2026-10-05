@@ -27,6 +27,26 @@ describe('structural', () => {
     expect(r.cases[0].failedAssertion?.reason).toContain('name');
   });
 
+  it('fails a json-schema assertion when the output is JSON but not an object', async () => {
+    const r = await run('null', [
+      { type: 'json-schema', schema: { type: 'object', properties: { name: {} } } },
+    ]);
+    expect(r.cases[0].passed).toBe(false);
+    expect(r.cases[0].failedAssertion?.reason).toContain('not a JSON object');
+  });
+
+  it('honours required and property types in a json-schema assertion', async () => {
+    const schema = { type: 'object', properties: { name: { type: 'string' }, age: { type: 'number' } }, required: ['name'] };
+    const ok = await run(JSON.stringify({ name: 'Ann' }), [{ type: 'json-schema', schema }]);
+    expect(ok.cases[0].passed).toBe(true);
+    const wrongType = await run(JSON.stringify({ name: 'Ann', age: 'thirty' }), [{ type: 'json-schema', schema }]);
+    expect(wrongType.cases[0].passed).toBe(false);
+    expect(wrongType.cases[0].failedAssertion?.reason).toContain('age');
+    const missing = await run(JSON.stringify({ age: 30 }), [{ type: 'json-schema', schema }]);
+    expect(missing.cases[0].passed).toBe(false);
+    expect(missing.cases[0].failedAssertion?.reason).toContain('name');
+  });
+
   it('should pass/fail on regex', async () => {
     expect((await run('The answer is 42', [{ type: 'regex', pattern: /answer is \d+/ }])).cases[0].passed).toBe(true);
     expect((await run('unclear', [{ type: 'regex', pattern: /answer is \d+/ }])).cases[0].passed).toBe(false);

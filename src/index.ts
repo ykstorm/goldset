@@ -40,3 +40,5 @@ export type {
 
 // Similarity utilities
 export { calculateSimilarity, levenshteinDistance } from './runners/golden';
+export { memoryCache, layeredCache } from './cache';
+export type { JudgeCache } from './cache';

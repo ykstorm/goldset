@@ -18,26 +18,59 @@ export interface AssertionFailure {
   reason: string;
 }
 
+/** Does `value` have the JSON Schema `type`? Only the primitive names are known. */
+function jsonTypeMatches(value: unknown, type: string): boolean {
+  switch (type) {
+    case 'string': return typeof value === 'string';
+    case 'number': return typeof value === 'number';
+    case 'integer': return Number.isInteger(value);
+    case 'boolean': return typeof value === 'boolean';
+    case 'null': return value === null;
+    case 'array': return Array.isArray(value);
+    case 'object': return typeof value === 'object' && value !== null && !Array.isArray(value);
+    default: return true;
+  }
+}
+
 /**
- * Validates JSON output against a (subset of) JSON Schema — presence of
- * required top-level properties from `schema.properties`.
+ * Validates JSON output against a small subset of JSON Schema: the top-level
+ * `type`; for objects, every property in `required` (or every key of
+ * `properties` when `required` is absent) must be present and not null, and a
+ * property with a `type` must have it. Nested schemas are not checked.
  */
 function validateJsonSchema(
   output: string,
   schema: Record<string, unknown>
 ): AssertionFailure | null {
-  let parsed: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(output) as Record<string, unknown>;
+    parsed = JSON.parse(output);
   } catch {
     return { type: 'json-schema', reason: 'output is not valid JSON' };
   }
-  if (schema.type === 'object' && schema.properties) {
-    const props = schema.properties as Record<string, unknown>;
-    for (const key of Object.keys(props)) {
-      if (parsed[key] === undefined || parsed[key] === null) {
-        return { type: 'json-schema', reason: `missing property "${key}"` };
-      }
+  const wantsObject = schema.type === 'object' || schema.properties !== undefined;
+  if (!wantsObject) {
+    if (typeof schema.type === 'string' && !jsonTypeMatches(parsed, schema.type)) {
+      return { type: 'json-schema', reason: `output is not of type ${schema.type}` };
+    }
+    return null;
+  }
+  if (!jsonTypeMatches(parsed, 'object')) {
+    return { type: 'json-schema', reason: 'output is not a JSON object' };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const props = (schema.properties ?? {}) as Record<string, { type?: unknown } | undefined>;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : Object.keys(props);
+  for (const key of required) {
+    if (obj[key] === undefined || obj[key] === null) {
+      return { type: 'json-schema', reason: `missing property "${key}"` };
+    }
+  }
+  for (const [key, def] of Object.entries(props)) {
+    const value = obj[key];
+    if (value === undefined || value === null || typeof def?.type !== 'string') continue;
+    if (!jsonTypeMatches(value, def.type)) {
+      return { type: 'json-schema', reason: `property "${key}" is not of type ${def.type}` };
     }
   }
   return null;

@@ -98,11 +98,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - uses: ykstorm/goldset@v1   # pin to a commit SHA in production
+      - uses: ykstorm/goldset@v0.2.4   # the latest release tag; pin to a commit SHA in production
         with:
           eval-dir: evals
           judge-provider: none        # or openai | anthropic
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,7 +114,6 @@ Inputs:
 |-------|---------|-------------|
 | `eval-dir` | `evals` | Directory of `*.eval.ts` files (must be inside the workspace) |
 | `judge-provider` | `none` | `openai` \| `anthropic` \| `none`; sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key |
-| `fail-on-regression` | `true` | Fail when an eval that passed on the base branch now fails |
 | `comment-on-pr` | `true` | Post/update a results + delta comment on the PR |
 | `github-token` | `${{ github.token }}` | Token for the PR comment (wins over `GITHUB_TOKEN`) |
 | `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |

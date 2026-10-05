@@ -175,8 +175,11 @@ interface StructuralResult {
 
 Assertion types:
 
-- `json-schema` — output parses as JSON and has every top-level property in
-  `schema.properties`.
+- `json-schema`: output parses as JSON. With `type: 'object'` or `properties`
+  it must be an object, every property in `required` (or every key of
+  `properties` when `required` is absent) must be present and not null, and a
+  property with a `type` must have it. A top-level primitive `type` is checked
+  too. Nested schemas are not checked.
 - `regex` — output matches the pattern. Patterns with nested unbounded
   quantifiers (the `(a+)+` family) are rejected rather than run, the global and
   sticky flags are ignored, and the tested text is capped at 100,000 characters.
@@ -219,10 +222,13 @@ unparseable.
 
 `llmJudge` and `grounding` can reuse a judge's verdict for an identical
 `(runner, rubric/context, input, expected, output)`, since that is deterministic
-input to the judge. Pass a `cache` on the config, or set `GOLDSET_JUDGE_CACHE` to
-enable the default cache (a memory layer over a file at `.goldset-cache/judge.json`;
-set it to a path to choose the directory). Only the raw verdict is cached; scoring
-and clamping run every time.
+input to the judge. Pass a `cache` on the config (`memoryCache()`, or
+`layeredCache(...)` over any object with `get(key)` and `set(key, verdict)`, the
+`JudgeCache` type), or set `GOLDSET_JUDGE_CACHE` to enable the default cache (a
+memory layer over a file at `.goldset-cache/judge.json`; set it to a path to choose
+the directory). Only the raw verdict is cached, and only when it carries a numeric
+`score`; a reply the scorer cannot read is scored 0 for that run and asked again next
+time. Scoring and clamping run every time.
 
 ## Environment variables
 
