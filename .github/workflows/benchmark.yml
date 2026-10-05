@@ -26,7 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Run free-runner timing benchmark
-        run: node bench/runners.mjs | tee bench/results.txt
+        # pipefail, so a failing benchmark is not hidden behind tee
+        shell: bash
+        run: set -o pipefail && node bench/runners.mjs | tee bench/results.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: free-runners
@@ -49,7 +51,14 @@ jobs:
       - name: Run LLM-judge cost benchmark (Claude Haiku)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node bench/judge.mjs | tee bench/judge-results.json
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY is not set; nothing to measure" >&2
+            exit 1
+          fi
+          node bench/judge.mjs | tee bench/judge-results.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: judge-cost

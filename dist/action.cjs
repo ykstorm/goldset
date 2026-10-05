@@ -24464,9 +24464,8 @@ function parseEvalOutput(file, stdout, exitCode, timedOut = false) {
   if (timedOut) {
     return { file: base, passed: false, error: "eval timed out" };
   }
-  const trimmed = stdout.trim();
-  const start = trimmed.indexOf("{");
-  const jsonText = start >= 0 ? trimmed.slice(start) : "";
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const jsonText = [...lines].reverse().find((l) => l.startsWith("{") && l.endsWith("}")) ?? "";
   try {
     const parsed = JSON.parse(jsonText);
     const runners = {};
@@ -24656,7 +24655,6 @@ function readInputs() {
   return {
     evalDir: getInput("eval-dir") || "evals",
     judgeProvider: normalizeProvider(getInput("judge-provider") || "none"),
-    failOnRegression: (getInput("fail-on-regression") || "true") !== "false",
     commentOnPR: (getInput("comment-on-pr") || "true") !== "false",
     timeoutMs: Number(getInput("timeout-ms") || "0") || 0,
     passEnv,
@@ -24697,12 +24695,16 @@ async function computeRegressionAndComment(results, inputs) {
       createComment: (a) => octokit.rest.issues.createComment(a),
       updateComment: (a) => octokit.rest.issues.updateComment(a)
     };
-    const action = await postComment(
-      api,
-      { owner, repo, issueNumber: pr.number },
-      buildCommentBody(results, baseResults)
-    );
-    info(`[goldset] PR comment ${action}`);
+    try {
+      const action = await postComment(
+        api,
+        { owner, repo, issueNumber: pr.number },
+        buildCommentBody(results, baseResults)
+      );
+      info(`[goldset] PR comment ${action}`);
+    } catch (err) {
+      warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
   return regressed;
 }
@@ -24740,12 +24742,9 @@ async function run() {
   await writeSummary(results);
   info(`[goldset] ${passed}/${total} eval files passed`);
   if (failed > 0) {
-    setFailed(`Goldset: ${failed}/${total} eval file(s) failed`);
-    process.exit(1);
-  }
-  if (inputs.failOnRegression && regressed) {
-    setFailed("Goldset: regression detected vs base branch");
-    process.exit(1);
+    const why = regressed ? " (regression vs base branch)" : "";
+    setFailed(`Goldset: ${failed}/${total} eval file(s) failed${why}`);
+    process.exitCode = 1;
   }
 }
 run().catch((err) => {

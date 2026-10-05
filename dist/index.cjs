@@ -34,8 +34,10 @@ __export(index_exports, {
   calculateSimilarity: () => calculateSimilarity,
   goldenDataset: () => goldenDataset,
   grounding: () => grounding,
+  layeredCache: () => layeredCache,
   levenshteinDistance: () => levenshteinDistance,
   llmJudge: () => llmJudge,
+  memoryCache: () => memoryCache,
   parseJudgeScore: () => parseJudgeScore,
   runEval: () => runEval,
   structural: () => structural,
@@ -45,10 +47,15 @@ module.exports = __toCommonJS(index_exports);
 
 // src/runners/golden.ts
 var MAX_LEVENSHTEIN_LEN = 2e4;
+function capped(str1, str2) {
+  return [
+    str1.length > MAX_LEVENSHTEIN_LEN ? str1.slice(0, MAX_LEVENSHTEIN_LEN) : str1,
+    str2.length > MAX_LEVENSHTEIN_LEN ? str2.slice(0, MAX_LEVENSHTEIN_LEN) : str2
+  ];
+}
 function levenshteinDistance(str1, str2) {
-  const a = str1.length > MAX_LEVENSHTEIN_LEN ? str1.slice(0, MAX_LEVENSHTEIN_LEN) : str1;
-  const b = str2.length > MAX_LEVENSHTEIN_LEN ? str2.slice(0, MAX_LEVENSHTEIN_LEN) : str2;
-  if (a === b) return 0;
+  if (str1 === str2) return 0;
+  const [a, b] = str1.length >= str2.length ? [str1, str2] : [str2, str1];
   const m = a.length;
   const n = b.length;
   if (m === 0) return n;
@@ -67,8 +74,9 @@ function levenshteinDistance(str1, str2) {
   return prev[n];
 }
 function calculateSimilarity(str1, str2) {
-  const distance = levenshteinDistance(str1, str2);
-  const maxLength = Math.max(str1.length, str2.length);
+  const [a, b] = capped(str1, str2);
+  const distance = levenshteinDistance(a, b);
+  const maxLength = Math.max(a.length, b.length);
   if (maxLength === 0) {
     return 1;
   }
@@ -76,6 +84,26 @@ function calculateSimilarity(str1, str2) {
 }
 
 // src/runners/structural.ts
+function jsonTypeMatches(value, type) {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number";
+    case "integer":
+      return Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return typeof value === "object" && value !== null && !Array.isArray(value);
+    default:
+      return true;
+  }
+}
 function validateJsonSchema(output, schema) {
   let parsed;
   try {
@@ -83,12 +111,29 @@ function validateJsonSchema(output, schema) {
   } catch {
     return { type: "json-schema", reason: "output is not valid JSON" };
   }
-  if (schema.type === "object" && schema.properties) {
-    const props = schema.properties;
-    for (const key of Object.keys(props)) {
-      if (parsed[key] === void 0 || parsed[key] === null) {
-        return { type: "json-schema", reason: `missing property "${key}"` };
-      }
+  const wantsObject = schema.type === "object" || schema.properties !== void 0;
+  if (!wantsObject) {
+    if (typeof schema.type === "string" && !jsonTypeMatches(parsed, schema.type)) {
+      return { type: "json-schema", reason: `output is not of type ${schema.type}` };
+    }
+    return null;
+  }
+  if (!jsonTypeMatches(parsed, "object")) {
+    return { type: "json-schema", reason: "output is not a JSON object" };
+  }
+  const obj = parsed;
+  const props = schema.properties ?? {};
+  const required = Array.isArray(schema.required) ? schema.required : Object.keys(props);
+  for (const key of required) {
+    if (obj[key] === void 0 || obj[key] === null) {
+      return { type: "json-schema", reason: `missing property "${key}"` };
+    }
+  }
+  for (const [key, def] of Object.entries(props)) {
+    const value = obj[key];
+    if (value === void 0 || value === null || typeof def?.type !== "string") continue;
+    if (!jsonTypeMatches(value, def.type)) {
+      return { type: "json-schema", reason: `property "${key}" is not of type ${def.type}` };
     }
   }
   return null;
@@ -291,6 +336,14 @@ function parseJudgeScore(text) {
   if (typeof raw !== "number" || !Number.isFinite(raw)) return 0;
   return Math.round(Math.min(5, Math.max(0, raw)));
 }
+function hasJudgeScore(text) {
+  try {
+    const raw = JSON.parse(text).score;
+    return typeof raw === "number" && Number.isFinite(raw);
+  } catch {
+    return false;
+  }
+}
 function parseJudgeReason(text) {
   try {
     const reason = JSON.parse(text).reason;
@@ -313,7 +366,7 @@ async function goldenDataset(cases, config) {
     );
     const passed2 = similarity >= threshold;
     if (config.verbose) {
-      console.log(`[goldenDataset] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (similarity ${similarity})`);
+      console.error(`[goldenDataset] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (similarity ${similarity})`);
     }
     results.push({ id: tc.id, passed: passed2, similarity, output, threshold });
   }
@@ -340,13 +393,13 @@ async function scoreWithJudge(runner, cases, config, rubricFor, buildPrompt) {
     let verdict = cache?.get(key);
     if (verdict === void 0) {
       verdict = await Promise.resolve(config.judge(buildPrompt(tc, output)));
-      cache?.set(key, verdict);
+      if (hasJudgeScore(verdict)) cache?.set(key, verdict);
     }
     const score = parseJudgeScore(verdict);
     const reasoning = parseJudgeReason(verdict);
     const passed2 = score >= passThreshold;
     if (config.verbose) {
-      console.log(`[${runner}] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
+      console.error(`[${runner}] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (score ${score}/5)`);
     }
     results.push({ id: tc.id, passed: passed2, score, output, reasoning, passThreshold });
   }
@@ -398,7 +451,7 @@ async function structural(cases, config) {
     const failure = applyAssertions(output, assertions);
     const passed2 = failure === null;
     if (config.verbose) {
-      console.log(`[structural] ${passed2 ? "PASS" : "FAIL"} ${tc.id}`);
+      console.error(`[structural] ${passed2 ? "PASS" : "FAIL"} ${tc.id}`);
     }
     results.push({
       id: tc.id,
@@ -473,7 +526,7 @@ async function runEval(...runnerResults) {
   const result = toEvalResult(...runnerResults);
   const jsonMode = process.argv.includes("--output") && process.argv[process.argv.indexOf("--output") + 1] === "json";
   if (jsonMode) {
-    process.stdout.write(JSON.stringify(result));
+    process.stdout.write("\n" + JSON.stringify(result) + "\n");
   } else {
     for (const r of runnerResults) {
       const total = r.cases.length;
@@ -481,7 +534,7 @@ async function runEval(...runnerResults) {
       console.log(`${mark} ${r.runner}: ${r.summary.passed}/${total} passed`);
     }
   }
-  if (!result.passed) process.exit(1);
+  if (!result.passed) process.exitCode = 1;
   return result;
 }
 // Annotate the CommonJS export names for ESM import in node:
@@ -490,8 +543,10 @@ async function runEval(...runnerResults) {
   calculateSimilarity,
   goldenDataset,
   grounding,
+  layeredCache,
   levenshteinDistance,
   llmJudge,
+  memoryCache,
   parseJudgeScore,
   runEval,
   structural,

@@ -31,6 +31,10 @@ interface JudgeCache {
     get(key: string): string | undefined;
     set(key: string, verdict: string): void;
 }
+/** In-process cache; lives for one run. */
+declare function memoryCache(): JudgeCache;
+/** Read layers in order; write to all. Put the fast layer first. */
+declare function layeredCache(...layers: JudgeCache[]): JudgeCache;
 
 type LLMFn = (input: string) => Promise<string> | string;
 type JudgeFn = (prompt: string) => Promise<string> | string;
@@ -176,19 +180,19 @@ declare function toEvalResult(...args: (AnyRunnerResult | ToEvalResultOptions)[]
  * Convenience harness for an `.eval.ts` file. Runs the provided runners,
  * prints a human summary, and — when invoked with `--output json` (as the
  * Goldset Action does) — prints the `EvalResult` JSON to stdout. Calls
- * `process.exit(1)` if any runner failed so the Action can gate the merge.
+ * Sets a non-zero exit code if any runner failed so the Action can gate the merge.
  */
 declare function runEval(...runnerResults: AnyRunnerResult[]): Promise<EvalResult>;
 
 /**
- * Calculate Levenshtein distance between two strings using a two-row dynamic
- * program (O(min(m,n)) memory). Inputs longer than MAX_LEVENSHTEIN_LEN are
- * truncated first so a pathological pair can't blow up time or memory.
+ * Levenshtein distance with a two-row dynamic program. The rows are sized by
+ * the shorter string, so memory is O(min(m, n)); time is O(m * n).
  */
 declare function levenshteinDistance(str1: string, str2: string): number;
 /**
- * Calculate similarity score as 1 - (distance / maxLength)
+ * Similarity as 1 - distance / maxLength, computed on the capped strings so
+ * text past the cap neither counts as matching nor as differing.
  */
 declare function calculateSimilarity(str1: string, str2: string): number;
 
-export { type Assertion, type AssertionFailure, type AssertionType, type EvalResult, type GoldenCase, type GoldenCaseResult, type GoldenConfig, type GoldenResult, type GroundingCase, type GroundingCaseResult, type GroundingConfig, type GroundingResult, type JudgeCase, type JudgeCaseResult, type JudgeConfig, type JudgeFn, type JudgeResult, type LLMFn, type StructuralCase, type StructuralCaseResult, type StructuralConfig, type StructuralResult, applyAssertions, calculateSimilarity, goldenDataset, grounding, levenshteinDistance, llmJudge, parseJudgeScore, runEval, structural, toEvalResult };
+export { type Assertion, type AssertionFailure, type AssertionType, type EvalResult, type GoldenCase, type GoldenCaseResult, type GoldenConfig, type GoldenResult, type GroundingCase, type GroundingCaseResult, type GroundingConfig, type GroundingResult, type JudgeCache, type JudgeCase, type JudgeCaseResult, type JudgeConfig, type JudgeFn, type JudgeResult, type LLMFn, type StructuralCase, type StructuralCaseResult, type StructuralConfig, type StructuralResult, applyAssertions, calculateSimilarity, goldenDataset, grounding, layeredCache, levenshteinDistance, llmJudge, memoryCache, parseJudgeScore, runEval, structural, toEvalResult };

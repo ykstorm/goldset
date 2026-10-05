@@ -40,6 +40,13 @@ describe('parseEvalOutput', () => {
     expect(r.passed).toBe(true);
   });
 
+  it('ignores a brace printed by the eval before the result line', () => {
+    const out = 'config { verbose: true }\n{"passed":true,"runners":{}}\n';
+    const r = parseEvalOutput('noisy.eval.ts', out, 0);
+    expect(r.passed).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
   it('reports an error row when stdout has no parseable JSON', () => {
     const r = parseEvalOutput('bad.eval.ts', 'boom, threw an error', 1);
     expect(r.passed).toBe(false);

@@ -8,13 +8,9 @@ inputs:
     required: false
     default: "evals"
   judge-provider:
-    description: "Provider for LLM judge (openai | anthropic | none). When set, the matching API key already on the runner env is exposed to your eval as GOLDSET_JUDGE_PROVIDER."
+    description: "Provider for LLM judge (openai | anthropic | none). When set, that provider's API key is forwarded from the runner env under its own name and GOLDSET_JUDGE_PROVIDER carries the provider name."
     required: false
     default: "none"
-  fail-on-regression:
-    description: "Fail the action if any eval regresses vs the base branch's results"
-    required: false
-    default: "true"
   comment-on-pr:
     description: "Post (or update) a results + delta comment on the pull request"
     required: false

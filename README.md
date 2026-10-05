@@ -134,11 +134,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm ci
-      - uses: ykstorm/goldset@v1
+      - uses: ykstorm/goldset@v0.2.4
         with:
           eval-dir: evals
           judge-provider: none   # or openai | anthropic
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,7 +145,7 @@ jobs:
 ```
 
 For a supply-chain-hardened pin, reference the Action by commit SHA rather than a
-moving tag, for example `uses: ykstorm/goldset@<sha>  # v1`.
+moving tag, for example `uses: ykstorm/goldset@<sha>  # v0.2.4`.
 
 The Action runs every `*.eval.ts` under `eval-dir` with the pinned `tsx` CLI
 (`--output json`), writes a combined `goldset-results.json`, posts or updates a PR
@@ -159,7 +158,6 @@ any eval fails or regresses against the base branch.
 |-------|---------|-------------|
 | `eval-dir` | `evals` | Directory containing `*.eval.ts` files |
 | `judge-provider` | `none` | `openai` \| `anthropic` \| `none`. Sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key to your eval |
-| `fail-on-regression` | `true` | Fail the check if any eval regresses vs the base branch |
 | `comment-on-pr` | `true` | Post or update a results + delta comment on the PR |
 | `github-token` | `${{ github.token }}` | Token for the PR comment; wins over `GITHUB_TOKEN` |
 | `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |

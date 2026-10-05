@@ -3,15 +3,21 @@
 /** Cap on each string's length, to bound the O(m*n) distance computation. */
 const MAX_LEVENSHTEIN_LEN = 20_000;
 
+/** Both strings cut to the cap, so distance and length are measured on the same text. */
+function capped(str1: string, str2: string): [string, string] {
+  return [
+    str1.length > MAX_LEVENSHTEIN_LEN ? str1.slice(0, MAX_LEVENSHTEIN_LEN) : str1,
+    str2.length > MAX_LEVENSHTEIN_LEN ? str2.slice(0, MAX_LEVENSHTEIN_LEN) : str2,
+  ];
+}
+
 /**
- * Calculate Levenshtein distance between two strings using a two-row dynamic
- * program (O(min(m,n)) memory). Inputs longer than MAX_LEVENSHTEIN_LEN are
- * truncated first so a pathological pair can't blow up time or memory.
+ * Levenshtein distance with a two-row dynamic program. The rows are sized by
+ * the shorter string, so memory is O(min(m, n)); time is O(m * n).
  */
 function levenshteinDistance(str1: string, str2: string): number {
-  const a = str1.length > MAX_LEVENSHTEIN_LEN ? str1.slice(0, MAX_LEVENSHTEIN_LEN) : str1;
-  const b = str2.length > MAX_LEVENSHTEIN_LEN ? str2.slice(0, MAX_LEVENSHTEIN_LEN) : str2;
-  if (a === b) return 0;
+  if (str1 === str2) return 0;
+  const [a, b] = str1.length >= str2.length ? [str1, str2] : [str2, str1];
   const m = a.length;
   const n = b.length;
   if (m === 0) return n;
@@ -33,11 +39,13 @@ function levenshteinDistance(str1: string, str2: string): number {
 }
 
 /**
- * Calculate similarity score as 1 - (distance / maxLength)
+ * Similarity as 1 - distance / maxLength, computed on the capped strings so
+ * text past the cap neither counts as matching nor as differing.
  */
 function calculateSimilarity(str1: string, str2: string): number {
-  const distance = levenshteinDistance(str1, str2);
-  const maxLength = Math.max(str1.length, str2.length);
+  const [a, b] = capped(str1, str2);
+  const distance = levenshteinDistance(a, b);
+  const maxLength = Math.max(a.length, b.length);
   
   if (maxLength === 0) {
     return 1.0; // Both strings are empty
