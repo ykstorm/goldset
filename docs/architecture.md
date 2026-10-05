@@ -18,21 +18,12 @@ Each runner takes `(cases, config)`, calls the consumer-supplied `llm` (and, for
 `llm` interface is just `(input: string) => Promise<string> | string`, so any
 provider works.
 
-```mermaid
-graph TB
-    Eval["evals/*.eval.ts"]
-    subgraph runners["@ykstormsorg/goldset"]
-        Gold["goldenDataset (Levenshtein)"]
-        Judge["llmJudge (rubric score)"]
-        Ground["grounding (faithfulness)"]
-        Struct["structural (schema/regex/tool-call)"]
-        Agg["toEvalResult / runEval"]
-    end
-    Eval --> Gold --> Agg
-    Eval --> Judge --> Agg
-    Eval --> Ground --> Agg
-    Eval --> Struct --> Agg
-```
+An eval file (`evals/*.eval.ts`) calls any of the four runners in
+`@ykstormsorg/goldset`: `goldenDataset` (Levenshtein similarity), `llmJudge` (a
+judge's 0 to 5 score against a rubric), `grounding` (a judge's 0 to 5 score for
+faithfulness to the supplied context) and `structural` (JSON schema, regex,
+substring and tool-call shape assertions). Their results go to `toEvalResult`
+or `runEval`, which combine them into one `EvalResult`.
 
 ## GitHub Action
 
@@ -50,19 +41,17 @@ The Action entry is `action/index.ts` (bundled to `dist/action.cjs`). It:
 5. Fails the check when any eval fails, or when `fail-on-regression` is on and an
    eval that passed on the base branch now fails.
 
-```mermaid
-sequenceDiagram
-    participant GHA as GitHub Action
-    participant Eval as eval process (tsx)
-    participant GH as GitHub API
-    GHA->>Eval: node tsx <file> --output json
-    Eval-->>GHA: EvalResult JSON
-    GHA->>GHA: write goldset-results.json
-    GHA->>GH: fetch base goldset-results.json
-    GHA->>GHA: compute delta + regression
-    GHA->>GH: upsert PR comment
-    GHA->>GHA: setFailed on failure/regression
-```
+Between the Action, each eval process and the GitHub API:
+
+1. For each eval file the Action runs `node <tsx> <file> --output json` and
+   reads the `EvalResult` JSON the eval prints on stdout.
+2. It writes `goldset-results.json`.
+3. On a pull request with a token, it fetches the base branch's
+   `goldset-results.json` through the GitHub API and checks for a regression.
+4. With `comment-on-pr` on (the default), it creates or updates its one PR
+   comment, which carries the delta against the base, through the same API.
+5. It calls `setFailed` when any eval file failed. A regression, an eval that
+   passed on the base branch and fails now, is always one of those.
 
 ## Result files
 
