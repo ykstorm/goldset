@@ -34,7 +34,9 @@ The Action entry is `action/index.ts` (bundled to `dist/action.cjs`). It:
 2. Runs each file on the pinned `tsx` CLI (`node <tsx> <file> --output json`),
    with a per-eval timeout and an allowlisted child environment.
 3. Parses each eval's JSON into a per-file row and writes the array to
-   `goldset-results.json`.
+   `goldset-results.json`. When an eval prints no result, the row's error is
+   the exit code followed by the last 20 lines of the eval's stderr; the step
+   log shows all of it, and the PR comment shows only the first line.
 4. If the event is a pull request and a token is present, fetches the base
    branch's committed `goldset-results.json`, computes the delta, and posts or
    updates one PR comment (`action/post-comment.ts`).

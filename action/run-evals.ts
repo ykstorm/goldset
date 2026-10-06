@@ -15,8 +15,20 @@ export interface RunOptions {
   /** Extra env var names the consumer allows into each eval process. */
   passEnv?: string[];
   /** Injectable for tests — defaults to spawning the pinned tsx CLI on Node. */
-  runFile?: (file: string) => { stdout: string; exitCode: number; timedOut: boolean };
+  runFile?: (file: string) => FileRun;
 }
+
+/** What one eval process left behind. */
+export interface FileRun {
+  stdout: string;
+  stderr?: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
+/** How much of an eval's stderr a failed row keeps. */
+const STDERR_TAIL_LINES = 20;
+const STDERR_TAIL_MAX_CHARS = 4_000;
 
 /**
  * Env var names always forwarded to an eval process. Anything else (secrets,
@@ -119,7 +131,7 @@ function defaultRunFile(
   env: NodeJS.ProcessEnv,
   tsxCli: string,
   timeoutMs?: number
-): { stdout: string; exitCode: number; timedOut: boolean } {
+): FileRun {
   const res = spawnSync(process.execPath, [tsxCli, file, '--output', 'json'], {
     cwd,
     env,
@@ -130,49 +142,69 @@ function defaultRunFile(
   });
   const errCode = (res.error as NodeJS.ErrnoException | undefined)?.code;
   const timedOut = res.signal === 'SIGTERM' || errCode === 'ETIMEDOUT';
-  return { stdout: res.stdout ?? '', exitCode: res.status ?? 1, timedOut };
+  return { stdout: res.stdout ?? '', stderr: res.stderr ?? '', exitCode: res.status ?? 1, timedOut };
 }
 
-/** Parse one eval process's stdout + exit code into a result row. */
+/**
+ * A failed row whose error is `message` on the first line, followed by the
+ * last lines of the eval's stderr when it wrote any. The first line alone is
+ * what the PR comment and job summary show.
+ */
+function errorRow(file: string, message: string, stderr: string): EvalFileResult {
+  const tail = stderr
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .slice(-STDERR_TAIL_LINES)
+    .join('\n')
+    .slice(-STDERR_TAIL_MAX_CHARS);
+  const error = tail ? `${message}\nstderr, last ${STDERR_TAIL_LINES} lines:\n${tail}` : message;
+  return { file, passed: false, error };
+}
+
+type RunnerSummaries = Record<string, { summary?: { passed: number; failed: number } }>;
+
+/** Per-runner counts for the known runner names, and the summary text built from them. */
+function readRunners(raw: RunnerSummaries = {}): { runners: NonNullable<EvalFileResult['runners']>; parts: string[] } {
+  const runners: NonNullable<EvalFileResult['runners']> = {};
+  const parts: string[] = [];
+  for (const [name, r] of Object.entries(raw)) {
+    if (!KNOWN_RUNNERS.has(name)) continue;
+    const s = r?.summary;
+    if (s && Number.isFinite(s.passed) && Number.isFinite(s.failed)) {
+      runners[name] = { passed: s.passed, failed: s.failed };
+      parts.push(`${name} ${s.passed}/${s.passed + s.failed}`);
+    }
+  }
+  return { runners, parts };
+}
+
+/** Parse one eval process's stdout, exit code and stderr into a result row. */
 export function parseEvalOutput(
   file: string,
   stdout: string,
   exitCode: number,
-  timedOut = false
+  timedOut = false,
+  stderr = ''
 ): EvalFileResult {
   const base = path.basename(file);
-  if (timedOut) {
-    return { file: base, passed: false, error: 'eval timed out' };
-  }
+  if (timedOut) return errorRow(base, 'eval timed out', stderr);
   // runEval prints the result as the last JSON line on stdout; anything an
   // eval printed before it (including a stray brace) is ignored.
   const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const jsonText = [...lines].reverse().find((l) => l.startsWith('{') && l.endsWith('}')) ?? '';
   try {
-    const parsed = JSON.parse(jsonText) as {
-      passed?: boolean;
-      runners?: Record<string, { summary?: { passed: number; failed: number } }>;
-    };
-    const runners: EvalFileResult['runners'] = {};
-    const summaryParts: string[] = [];
-    for (const [name, r] of Object.entries(parsed.runners ?? {})) {
-      if (!KNOWN_RUNNERS.has(name)) continue;
-      const s = r?.summary;
-      if (s && Number.isFinite(s.passed) && Number.isFinite(s.failed)) {
-        runners[name] = { passed: s.passed, failed: s.failed };
-        summaryParts.push(`${name} ${s.passed}/${s.passed + s.failed}`);
-      }
-    }
+    const parsed = JSON.parse(jsonText) as { passed?: boolean; runners?: RunnerSummaries };
+    const { runners, parts } = readRunners(parsed.runners);
     const passed = parsed.passed ?? exitCode === 0;
     return {
       file: base,
       passed,
-      summary: summaryParts.join(', ') || (passed ? 'passed' : 'failed'),
+      summary: parts.join(', ') || (passed ? 'passed' : 'failed'),
       runners,
     };
   } catch {
-    const raw = exitCode === 0 ? 'eval produced no parseable JSON on stdout' : `eval exited ${exitCode}`;
-    return { file: base, passed: false, error: raw.slice(0, 200) };
+    const message = exitCode === 0 ? 'eval produced no parseable JSON on stdout' : `eval exited ${exitCode}`;
+    return errorRow(base, message, stderr);
   }
 }
 
@@ -220,8 +252,8 @@ export async function runEvals(opts: RunOptions): Promise<EvalFileResult[]> {
 
   const results: EvalFileResult[] = [];
   for (const file of files) {
-    const { stdout, exitCode, timedOut } = run(file);
-    results.push(parseEvalOutput(file, stdout, exitCode, timedOut));
+    const { stdout, stderr, exitCode, timedOut } = run(file);
+    results.push(parseEvalOutput(file, stdout, exitCode, timedOut, stderr));
   }
   return results;
 }

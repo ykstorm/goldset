@@ -135,6 +135,8 @@ with an explanation.
 ## Troubleshooting
 
 - **"tsx is not installed"** — add it: `npm install -D tsx`.
+- An eval that crashes shows `eval exited N` in the PR comment. The step log
+  has the same line followed by the last 20 lines of the eval's stderr.
 - "no *.eval.ts files found under ..." means the `eval-dir` input points at a
   folder with no eval files. Fix the path or add an eval file.
 - **Evals pass locally but fail in CI** — make sure the LLM/judge API key is set
