@@ -104,6 +104,10 @@ function jsonTypeMatches(value, type) {
       return true;
   }
 }
+function describesObject(schema) {
+  if (schema.type !== void 0) return schema.type === "object";
+  return schema.properties !== void 0 || schema.required !== void 0;
+}
 function validateJsonSchema(output, schema) {
   let parsed;
   try {
@@ -111,8 +115,7 @@ function validateJsonSchema(output, schema) {
   } catch {
     return { type: "json-schema", reason: "output is not valid JSON" };
   }
-  const wantsObject = schema.type === "object" || schema.properties !== void 0;
-  if (!wantsObject) {
+  if (!describesObject(schema)) {
     if (typeof schema.type === "string" && !jsonTypeMatches(parsed, schema.type)) {
       return { type: "json-schema", reason: `output is not of type ${schema.type}` };
     }

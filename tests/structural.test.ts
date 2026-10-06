@@ -47,6 +47,15 @@ describe('structural', () => {
     expect(missing.cases[0].failedAssertion?.reason).toContain('name');
   });
 
+  it('reads required even when the schema has no type or properties', async () => {
+    const schema = { required: ['name'] };
+    const empty = await run('{}', [{ type: 'json-schema', schema }]);
+    expect(empty.cases[0].passed).toBe(false);
+    expect(empty.cases[0].failedAssertion?.reason).toBe('missing property "name"');
+    const ok = await run(JSON.stringify({ name: 'Ann' }), [{ type: 'json-schema', schema }]);
+    expect(ok.cases[0].passed).toBe(true);
+  });
+
   it('should pass/fail on regex', async () => {
     expect((await run('The answer is 42', [{ type: 'regex', pattern: /answer is \d+/ }])).cases[0].passed).toBe(true);
     expect((await run('unclear', [{ type: 'regex', pattern: /answer is \d+/ }])).cases[0].passed).toBe(false);

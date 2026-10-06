@@ -33,6 +33,15 @@ function jsonTypeMatches(value: unknown, type: string): boolean {
 }
 
 /**
+ * Does the schema describe an object? Yes for `type: 'object'`, and for a
+ * schema with no `type` that has `properties` or `required`.
+ */
+function describesObject(schema: Record<string, unknown>): boolean {
+  if (schema.type !== undefined) return schema.type === 'object';
+  return schema.properties !== undefined || schema.required !== undefined;
+}
+
+/**
  * Validates JSON output against a small subset of JSON Schema: the top-level
  * `type`; for objects, every property in `required` (or every key of
  * `properties` when `required` is absent) must be present and not null, and a
@@ -48,8 +57,7 @@ function validateJsonSchema(
   } catch {
     return { type: 'json-schema', reason: 'output is not valid JSON' };
   }
-  const wantsObject = schema.type === 'object' || schema.properties !== undefined;
-  if (!wantsObject) {
+  if (!describesObject(schema)) {
     if (typeof schema.type === 'string' && !jsonTypeMatches(parsed, schema.type)) {
       return { type: 'json-schema', reason: `output is not of type ${schema.type}` };
     }

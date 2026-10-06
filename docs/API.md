@@ -175,11 +175,12 @@ interface StructuralResult {
 
 Assertion types:
 
-- `json-schema`: output parses as JSON. With `type: 'object'` or `properties`
-  it must be an object, every property in `required` (or every key of
-  `properties` when `required` is absent) must be present and not null, and a
-  property with a `type` must have it. A top-level primitive `type` is checked
-  too. Nested schemas are not checked.
+- `json-schema`: output parses as JSON. With `type: 'object'`, or with
+  `properties` or `required` and no `type`, it must be an object, every
+  property in `required` (or every key of `properties` when `required` is
+  absent) must be present and not null, and a property with a `type` must have
+  it. Any other top-level `type` is checked on its own. Nested schemas are not
+  checked.
 - `regex` — output matches the pattern. Patterns with nested unbounded
   quantifiers (the `(a+)+` family) are rejected rather than run, the global and
   sticky flags are ignored, and the tested text is capped at 100,000 characters.
