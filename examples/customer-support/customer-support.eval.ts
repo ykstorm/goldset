@@ -2,6 +2,8 @@
 // structural against a deterministic local LLM and judge, so it runs with no API
 // key: npx tsx examples/customer-support/customer-support.eval.ts
 // Swap localLLM / localJudge for real provider calls in your own repo.
+// The awaits sit inside main() so the file runs in both ES module and
+// CommonJS projects; tsx refuses top-level await in CommonJS.
 import { goldenDataset, llmJudge, structural, runEval } from '../../src/index';
 
 const localLLM = (input: string): string => {
@@ -14,33 +16,40 @@ const localLLM = (input: string): string => {
 
 const localJudge = (): string => JSON.stringify({ score: 5, reason: 'meets rubric' });
 
-const golden = await goldenDataset(
-  [
+async function main(): Promise<void> {
+  const golden = await goldenDataset(
+    [
+      {
+        id: 'refund-q',
+        input: 'How do I get a refund?',
+        expected: 'Email support@example.com for refunds.',
+      },
+    ],
+    { llm: localLLM, threshold: 0.85 }
+  );
+
+  const judged = await llmJudge(
+    [{ id: 'greeting', input: 'hi there' }],
     {
-      id: 'refund-q',
-      input: 'How do I get a refund?',
-      expected: 'Email support@example.com for refunds.',
-    },
-  ],
-  { llm: localLLM, threshold: 0.85 }
-);
+      llm: localLLM,
+      judge: localJudge,
+      rubric: 'Score 5 if the greeting is friendly.',
+      passThreshold: 3,
+    }
+  );
 
-const judged = await llmJudge(
-  [{ id: 'greeting', input: 'hi there' }],
-  {
-    llm: localLLM,
-    judge: localJudge,
-    rubric: 'Score 5 if the greeting is friendly.',
-    passThreshold: 3,
-  }
-);
+  const shape = await structural(
+    [{ id: 'tool-q', input: 'lookup order #42' }],
+    {
+      llm: localLLM,
+      assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }],
+    }
+  );
 
-const shape = await structural(
-  [{ id: 'tool-q', input: 'lookup order #42' }],
-  {
-    llm: localLLM,
-    assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }],
-  }
-);
+  await runEval(golden, judged, shape);
+}
 
-await runEval(golden, judged, shape);
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});

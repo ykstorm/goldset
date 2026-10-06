@@ -28,16 +28,26 @@ const llm = async (input: string): Promise<string> => {
   return 'some answer'
 }
 
-const golden = await goldenDataset(
-  [
-    { id: 'math', input: 'What is 2+2?', expected: '4' },
-    { id: 'capital', input: 'Capital of France?', expected: 'Paris' },
-  ],
-  { llm, threshold: 0.8 }
-)
+async function main() {
+  const golden = await goldenDataset(
+    [
+      { id: 'math', input: 'What is 2+2?', expected: '4' },
+      { id: 'capital', input: 'Capital of France?', expected: 'Paris' },
+    ],
+    { llm, threshold: 0.8 }
+  )
 
-await runEval(golden)
+  await runEval(golden)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})
 ```
+
+The awaits sit inside `main()` because tsx refuses top-level `await` in a
+CommonJS project. This form works in both module systems.
 
 Run it locally:
 
@@ -56,22 +66,29 @@ import { goldenDataset, llmJudge, structural, runEval } from '@ykstormsorg/golds
 const llm = async (input: string): Promise<string> => { /* ... */ return '' }
 const judge = async (prompt: string): Promise<string> => { /* ... */ return '' }
 
-const golden = await goldenDataset(
-  [{ id: 'refund', input: 'I want a refund', expected: 'Email support@example.com' }],
-  { llm, threshold: 0.8 }
-)
+async function main() {
+  const golden = await goldenDataset(
+    [{ id: 'refund', input: 'I want a refund', expected: 'Email support@example.com' }],
+    { llm, threshold: 0.8 }
+  )
 
-const judged = await llmJudge(
-  [{ id: 'calm', input: 'THIS IS UNACCEPTABLE' }],
-  { llm, judge, rubric: 'Score 1-5: was the reply calm and helpful? 0 if it escalated.', passThreshold: 3 }
-)
+  const judged = await llmJudge(
+    [{ id: 'calm', input: 'THIS IS UNACCEPTABLE' }],
+    { llm, judge, rubric: 'Score 1-5: was the reply calm and helpful? 0 if it escalated.', passThreshold: 3 }
+  )
 
-const shape = await structural(
-  [{ id: 'lookup', input: 'lookup order 42' }],
-  { llm, assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }] }
-)
+  const shape = await structural(
+    [{ id: 'lookup', input: 'lookup order 42' }],
+    { llm, assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }] }
+  )
 
-await runEval(golden, judged, shape)
+  await runEval(golden, judged, shape)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})
 ```
 
 ## 4. Add the GitHub Action

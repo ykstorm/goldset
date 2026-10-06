@@ -18,21 +18,28 @@ const responses: Record<string, string> = {
 
 const llm = (input: string): string => responses[input] ?? '';
 
-// Each case needs different assertions, so run three single-case suites.
-// toEvalResult merges the three structural results into one.
-const jsonCase = await structural([{ id: 'json-shape', input: 'emit a user object' }], {
-  llm,
-  assertions: [
-    { type: 'json-schema', schema: { type: 'object', properties: { name: {}, age: {} } } },
-  ],
-});
-const greetCase = await structural([{ id: 'contains', input: 'greet the user' }], {
-  llm,
-  assertions: [{ type: 'contains', substring: 'Hello' }],
-});
-const toolCase = await structural([{ id: 'tool-call', input: 'lookup order #42' }], {
-  llm,
-  assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }],
-});
+async function main(): Promise<void> {
+  // Each case needs different assertions, so run three single-case suites.
+  // toEvalResult merges the three structural results into one.
+  const jsonCase = await structural([{ id: 'json-shape', input: 'emit a user object' }], {
+    llm,
+    assertions: [
+      { type: 'json-schema', schema: { type: 'object', properties: { name: {}, age: {} } } },
+    ],
+  });
+  const greetCase = await structural([{ id: 'contains', input: 'greet the user' }], {
+    llm,
+    assertions: [{ type: 'contains', substring: 'Hello' }],
+  });
+  const toolCase = await structural([{ id: 'tool-call', input: 'lookup order #42' }], {
+    llm,
+    assertions: [{ type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 }],
+  });
 
-await runEval(jsonCase, greetCase, toolCase);
+  await runEval(jsonCase, greetCase, toolCase);
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});

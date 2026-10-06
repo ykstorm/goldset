@@ -61,42 +61,53 @@ npm install -D tsx   # optional peer dep, used to run .eval.ts files directly
 import { goldenDataset, llmJudge, structural, runEval } from '@ykstormsorg/goldset'
 import { myLLM, myJudge } from '../src/llm'
 
-const golden = await goldenDataset(
-  [
-    { id: 'refund-q', input: 'How do I get a refund?', expected: 'Email support@...' },
-    { id: 'shipping-q', input: 'Where is my order?', expected: 'Track at track.example.com/...' },
-  ],
-  { llm: myLLM, threshold: 0.85 }
-)
-
-const judged = await llmJudge(
-  [
-    { id: 'es-q', input: '¿Cómo funciona esto?', expected: 'Spanish response' },
-    { id: 'fr-q', input: 'Comment ça marche ?', expected: 'French response' },
-  ],
-  {
-    llm: myLLM,
-    judge: myJudge,
-    rubric: 'Score 5 if the response is in the same language as the input, 0 if not.',
-    passThreshold: 3,
-  }
-)
-
-const shape = await structural(
-  [{ id: 'tool-q', input: 'lookup order 42' }],
-  {
-    llm: myLLM,
-    assertions: [
-      { type: 'json-schema', schema: { type: 'object', properties: { orderId: { type: 'string' } } } },
-      { type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 },
+async function main() {
+  const golden = await goldenDataset(
+    [
+      { id: 'refund-q', input: 'How do I get a refund?', expected: 'Email support@...' },
+      { id: 'shipping-q', input: 'Where is my order?', expected: 'Track at track.example.com/...' },
     ],
-  }
-)
+    { llm: myLLM, threshold: 0.85 }
+  )
 
-// runEval prints a human summary (or JSON with --output json, as the GitHub
-// Action does) and exits non-zero if any runner failed.
-await runEval(golden, judged, shape)
+  const judged = await llmJudge(
+    [
+      { id: 'es-q', input: '¿Cómo funciona esto?', expected: 'Spanish response' },
+      { id: 'fr-q', input: 'Comment ça marche ?', expected: 'French response' },
+    ],
+    {
+      llm: myLLM,
+      judge: myJudge,
+      rubric: 'Score 5 if the response is in the same language as the input, 0 if not.',
+      passThreshold: 3,
+    }
+  )
+
+  const shape = await structural(
+    [{ id: 'tool-q', input: 'lookup order 42' }],
+    {
+      llm: myLLM,
+      assertions: [
+        { type: 'json-schema', schema: { type: 'object', required: ['toolName', 'toolInput'] } },
+        { type: 'tool-call-shape', toolName: 'lookupOrder', argCount: 1 },
+      ],
+    }
+  )
+
+  // runEval prints a human summary (or JSON with --output json, as the GitHub
+  // Action does) and sets a non-zero exit code if any runner failed.
+  await runEval(golden, judged, shape)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})
 ```
+
+The awaits sit inside `main()` because tsx refuses top-level `await` in a
+CommonJS project. Written this way, an eval file runs in both module systems,
+whether or not your `package.json` says `"type": "module"`.
 
 ### 2. Run locally
 
