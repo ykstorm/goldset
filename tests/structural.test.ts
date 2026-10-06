@@ -121,17 +121,37 @@ describe('structural', () => {
     expect(oneFails.cases[0].failedAssertion?.reason).toContain('nonexistent');
   });
 
-  it('rejects a catastrophic-backtracking regex quickly instead of running it', async () => {
+  it('rejects a catastrophic-backtracking regex within the probe limit instead of running it', async () => {
     const t0 = performance.now();
     const r = await run('a'.repeat(30_000) + '!', [{ type: 'regex', pattern: '(a+)+$' }]);
     const elapsed = performance.now() - t0;
     expect(r.cases[0].passed).toBe(false);
     expect(r.cases[0].failedAssertion?.reason).toContain('unsafe regex');
-    expect(elapsed).toBeLessThan(100);
+    // One probe stopped at 200 ms, never the 30,001-character output.
+    expect(elapsed).toBeLessThan(2_000);
   });
 
-  it('still runs safe regexes with repetition that is not nested', async () => {
-    expect((await run('abcabc123', [{ type: 'regex', pattern: '(abc)+\\d+' }])).cases[0].passed).toBe(true);
+  it.each([
+    ['(a|aa)+$', 'aaaa'],
+    ['(a|a)+$', 'aaaa'],
+    ['(\\d|\\d)+$', '1234'],
+  ])('rejects the overlapping alternation %s even on an output it would match', async (pattern, output) => {
+    const r = await run(output, [{ type: 'regex', pattern }]);
+    expect(r.cases[0].passed).toBe(false);
+    expect(r.cases[0].failedAssertion?.reason).toContain('unsafe regex');
+  });
+
+  it.each([
+    ['answer is \\d+', 'The answer is 42'],
+    ['^\\{.*\\}$', '{"ok":true}'],
+    ['\\w+@\\w+\\.\\w+', 'write to ann@example.com'],
+    ['\\s+$', 'trailing space '],
+    ['^(yes|no)$', 'yes'],
+    ['(abc)+\\d+', 'abcabc123'],
+  ])('still runs the ordinary pattern %s', async (pattern, output) => {
+    const r = await run(output, [{ type: 'regex', pattern }]);
+    expect(r.cases[0].failedAssertion).toBeUndefined();
+    expect(r.cases[0].passed).toBe(true);
   });
 
   it('should handle invalid JSON gracefully for json-schema', async () => {

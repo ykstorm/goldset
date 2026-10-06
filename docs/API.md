@@ -181,9 +181,16 @@ Assertion types:
   absent) must be present and not null, and a property with a `type` must have
   it. Any other top-level `type` is checked on its own. Nested schemas are not
   checked.
-- `regex` — output matches the pattern. Patterns with nested unbounded
-  quantifiers (the `(a+)+` family) are rejected rather than run, the global and
-  sticky flags are ignored, and the tested text is capped at 100,000 characters.
+- `regex`: output matches the pattern. Before a pattern runs on any output it
+  is tried once, in a `node:vm` context with a 200 ms limit, on a few
+  1,000-character probe strings: runs of a letter, a digit, a space and the
+  literal characters of each group in the pattern. A pattern that does not
+  finish is rejected rather than run. This catches exponential backtracking
+  such as `(a+)+$`, `(a|aa)+$` and `(\d|\d)+$`. A pattern that is slow only in
+  proportion to the square of the input, such as `\s+$`, still runs; the
+  100,000-character cap on the tested text bounds that work, though a long
+  enough output can still take seconds. The global and sticky flags are
+  ignored.
 - `contains` — output contains the substring.
 - `tool-call-shape` — output is a JSON tool call (or array of calls) with the
   given `toolName` and, optionally, exactly `argCount` arguments.
