@@ -123,6 +123,12 @@ PASS llmJudge: 2/2 passed
 PASS structural: 1/1 passed
 ```
 
+Goldset has two interfaces: the library API that an eval file calls, and the
+GitHub Action that runs every eval file in CI. There is no `goldset` command.
+Locally you run an eval file with tsx, and `--output json` prints the result
+line the Action reads. The `goldset` command that npm 0.2.4 installs only prints
+a stub message, and 0.3.0 does not ship it.
+
 ### 3. Add to CI
 
 ```yaml
