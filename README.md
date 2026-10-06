@@ -150,7 +150,8 @@ moving tag, for example `uses: ykstorm/goldset@<sha>  # v0.2.4`.
 The Action runs every `*.eval.ts` under `eval-dir` with the pinned `tsx` CLI
 (`--output json`), writes a combined `goldset-results.json`, posts or updates a PR
 comment with a results table and a delta-vs-base section, and fails the check if
-any eval fails or regresses against the base branch.
+any eval fails or regresses against the base branch. It also fails when `eval-dir`
+holds no `*.eval.ts` file, so a typo in the path cannot give a green check.
 
 ## GitHub Action
 

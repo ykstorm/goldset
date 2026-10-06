@@ -4,7 +4,7 @@ description: "Run AI evals in CI: golden datasets, LLM-as-judge, structural asse
 
 inputs:
   eval-dir:
-    description: "Directory containing *.eval.ts files"
+    description: "Directory containing *.eval.ts files. The step fails if it holds none."
     required: false
     default: "evals"
   judge-provider:

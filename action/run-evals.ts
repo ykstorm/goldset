@@ -193,13 +193,19 @@ function findEvalFiles(dir: string): string[] {
 
 /**
  * Run all eval files under `evalDir`. Returns the collected results; the caller
- * writes them to disk and decides on the exit code.
+ * writes them to disk and decides on the exit code. Throws when the directory
+ * holds no `*.eval.ts` file.
  */
 export async function runEvals(opts: RunOptions): Promise<EvalFileResult[]> {
   const cwd = opts.cwd ?? process.cwd();
   const dir = resolveEvalDir(cwd, opts.evalDir);
   const env = buildChildEnv(opts.judgeProvider, opts.passEnv);
   const files = findEvalFiles(dir);
+  // A run that tests nothing must not pass: a typo in eval-dir would
+  // otherwise give a green check.
+  if (files.length === 0) {
+    throw new Error(`no *.eval.ts files found under ${dir} (eval-dir: ${opts.evalDir}). Check the eval-dir input.`);
+  }
 
   let run = opts.runFile;
   if (!run) {

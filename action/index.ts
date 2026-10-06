@@ -174,9 +174,6 @@ async function run(): Promise<void> {
     timeoutMs: inputs.timeoutMs,
     passEnv: inputs.passEnv,
   });
-  if (results.length === 0) {
-    core.warning(`[goldset] no *.eval.ts files found under ${inputs.evalDir}/`);
-  }
 
   const { total, passed, failed } = writeResults(results);
   const regressed = await computeRegressionAndComment(results, inputs);

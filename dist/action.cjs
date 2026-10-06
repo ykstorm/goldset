@@ -24508,6 +24508,9 @@ async function runEvals(opts) {
   const dir = resolveEvalDir(cwd, opts.evalDir);
   const env = buildChildEnv(opts.judgeProvider, opts.passEnv);
   const files = findEvalFiles(dir);
+  if (files.length === 0) {
+    throw new Error(`no *.eval.ts files found under ${dir} (eval-dir: ${opts.evalDir}). Check the eval-dir input.`);
+  }
   let run2 = opts.runFile;
   if (!run2) {
     const tsxCli = resolveTsxCli(cwd);
@@ -24734,9 +24737,6 @@ async function run() {
     timeoutMs: inputs.timeoutMs,
     passEnv: inputs.passEnv
   });
-  if (results.length === 0) {
-    warning(`[goldset] no *.eval.ts files found under ${inputs.evalDir}/`);
-  }
   const { total, passed, failed } = writeResults(results);
   const regressed = await computeRegressionAndComment(results, inputs);
   await writeSummary(results);

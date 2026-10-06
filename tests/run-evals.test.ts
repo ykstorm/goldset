@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   parseEvalOutput,
   buildChildEnv,
   resolveEvalDir,
+  runEvals,
 } from '../action/run-evals';
 
 describe('parseEvalOutput', () => {
@@ -125,5 +128,52 @@ describe('resolveEvalDir', () => {
   it('rejects an absolute path outside cwd', () => {
     const outside = process.platform === 'win32' ? 'C:\\etc' : '/etc';
     expect(() => resolveEvalDir(cwd, outside)).toThrow(/escapes/);
+  });
+});
+
+describe('runEvals', () => {
+  const passing = () => ({ stdout: '{"passed":true,"runners":{}}', exitCode: 0, timedOut: false });
+  const made: string[] = [];
+  const tempProject = (): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'goldset-run-'));
+    made.push(dir);
+    return dir;
+  };
+  afterAll(() => {
+    for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('fails when the eval directory holds no eval files, naming the directory', async () => {
+    const cwd = tempProject();
+    fs.mkdirSync(path.join(cwd, 'evals'));
+    fs.writeFileSync(path.join(cwd, 'evals', 'notes.md'), 'not an eval');
+    await expect(runEvals({ evalDir: 'evals', judgeProvider: 'none', cwd, runFile: passing }))
+      .rejects.toThrow(`no *.eval.ts files found under ${path.join(cwd, 'evals')}`);
+  });
+
+  it('fails the same way when the eval directory does not exist', async () => {
+    const cwd = tempProject();
+    await expect(runEvals({ evalDir: 'evalz', judgeProvider: 'none', cwd, runFile: passing }))
+      .rejects.toThrow(path.join(cwd, 'evalz'));
+  });
+
+  it('runs every *.eval.ts file under the directory, in sorted order', async () => {
+    const cwd = tempProject();
+    fs.mkdirSync(path.join(cwd, 'evals', 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, 'evals', 'b.eval.ts'), '');
+    fs.writeFileSync(path.join(cwd, 'evals', 'nested', 'a.eval.ts'), '');
+    fs.writeFileSync(path.join(cwd, 'evals', 'helper.ts'), '');
+    const seen: string[] = [];
+    const results = await runEvals({
+      evalDir: 'evals',
+      judgeProvider: 'none',
+      cwd,
+      runFile: (file) => {
+        seen.push(path.relative(cwd, file));
+        return passing();
+      },
+    });
+    expect(seen).toEqual([path.join('evals', 'b.eval.ts'), path.join('evals', 'nested', 'a.eval.ts')]);
+    expect(results.map((r) => r.passed)).toEqual([true, true]);
   });
 });

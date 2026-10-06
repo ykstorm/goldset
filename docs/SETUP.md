@@ -135,6 +135,8 @@ with an explanation.
 ## Troubleshooting
 
 - **"tsx is not installed"** — add it: `npm install -D tsx`.
+- "no *.eval.ts files found under ..." means the `eval-dir` input points at a
+  folder with no eval files. Fix the path or add an eval file.
 - **Evals pass locally but fail in CI** — make sure the LLM/judge API key is set
   in CI secrets and referenced under `env:`. The Action does not inject it.
 - **No PR comment** — the event must be a pull request and a token must be
