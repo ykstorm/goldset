@@ -28,7 +28,6 @@ jobs:
         with:
           eval-dir: fixtures/evals
           judge-provider: none
-          fail-on-regression: false
           comment-on-pr: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

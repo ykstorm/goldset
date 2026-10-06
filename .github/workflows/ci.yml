@@ -90,7 +90,6 @@ jobs:
         with:
           eval-dir: evals
           judge-provider: none
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

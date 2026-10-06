@@ -38,7 +38,6 @@ jobs:
           # to let your .eval.ts judges call a provider. The dogfood suite is
           # hermetic, so 'none' is correct here.
           judge-provider: none
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
