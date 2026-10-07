@@ -30,13 +30,28 @@ git push origin v0.3.0
 Pushing a `v*` tag runs CI. The `publish-npm` job in `.github/workflows/ci.yml`
 waits for the `test`, `dist-check` and `dogfood` jobs to pass; it does not run
 the tests itself. It installs, builds, checks that the tag matches the
-`package.json` version, and runs `npm publish --provenance --access public` with
-the `NPM_TOKEN` secret. Nothing checks that the tagged commit is on `main`, so
-tag only a commit that is. Verify:
+`package.json` version, and runs `npm publish --provenance --access public`. The
+job signs in to npm with an OIDC token from GitHub Actions (npm Trusted
+Publishing), so the repo holds no npm token; see One-time npm setup below.
+Nothing checks that the tagged commit is on `main`, so tag only a commit that
+is. Verify:
 
 ```bash
 npm view @ykstormsorg/goldset
 ```
+
+### One-time npm setup
+
+A package owner does this once on npmjs.com:
+
+1. Open the package page for `@ykstormsorg/goldset` and go to Settings.
+2. Under Trusted Publisher, choose GitHub Actions.
+3. Set the repository to `ykstorm/goldset` and the workflow file to `ci.yml`. Use the file name only, with the extension, spelled exactly as in `.github/workflows`. Leave the environment blank.
+4. Save.
+
+The publish job has `id-token: write` permission, runs on Node 22 and installs npm 11.5.1 or newer, which npm requires for trusted publishing. npm matches the workflow file name exactly, so if the file is renamed, update the setting on npmjs.com or the publish fails.
+
+After the first successful publish this way, delete the `NPM_TOKEN` secret from the repository (Settings, Secrets and variables, Actions) and revoke the token on npmjs.com.
 
 ## 3. Release the Action
 
