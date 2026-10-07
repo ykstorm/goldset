@@ -24571,6 +24571,15 @@ function computeDelta(current, base) {
   }
   return { regressed, fixed };
 }
+function buildResultsTable(results) {
+  let table = "| eval | status | details |\n|---|---|---|\n";
+  for (const r of results) {
+    const detail = escapeCell(rowDetail(r));
+    table += `| \`${escapeCell(r.file)}\` | ${r.passed ? "PASS" : "FAIL"} | ${detail} |
+`;
+  }
+  return table;
+}
 function buildCommentBody(results, base) {
   const total = results.length;
   const passed = results.filter((r) => r.passed).length;
@@ -24581,12 +24590,7 @@ ${HEADING}
   body += `**${passed}/${total} eval files passed.**
 
 `;
-  body += "| eval | status | details |\n|---|---|---|\n";
-  for (const r of results) {
-    const detail = escapeCell(rowDetail(r));
-    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? "PASS" : "FAIL"} | ${detail} |
-`;
-  }
+  body += buildResultsTable(results);
   if (base && base.length) {
     const { regressed, fixed } = computeDelta(results, base);
     body += "\n### Delta vs base\n\n";
@@ -24633,6 +24637,12 @@ async function postComment(api, ctx, body) {
     body
   });
   return "created";
+}
+
+// action/summary.ts
+async function writeSummary(results) {
+  if (!process.env.GITHUB_STEP_SUMMARY) return;
+  await summary.addHeading("Goldset Eval Results").addEOL().addRaw(buildResultsTable(results), true).write();
 }
 
 // action/index.ts
@@ -24724,22 +24734,6 @@ async function computeRegressionAndComment(results, inputs) {
     }
   }
   return regressed;
-}
-async function writeSummary(results) {
-  if (!process.env.GITHUB_STEP_SUMMARY) return;
-  const rows = [
-    [
-      { data: "eval", header: true },
-      { data: "status", header: true },
-      { data: "details", header: true }
-    ],
-    ...results.map((r) => [
-      { data: r.file },
-      { data: r.passed ? "PASS" : "FAIL" },
-      { data: rowDetail(r) }
-    ])
-  ];
-  await summary.addHeading("Goldset Eval Results").addTable(rows).write();
 }
 async function run() {
   maskSecrets();
