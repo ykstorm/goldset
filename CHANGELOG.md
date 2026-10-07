@@ -9,7 +9,7 @@ marked Breaking.
 
 - The Action job summary escapes eval names and error text the way the PR comment does, so markdown or HTML in a name cannot land in the summary raw (#39). The committed dist is rebuilt.
 
-## 0.3.0 - unreleased
+## 0.3.0 - 2026-10-07
 
 Everything below is relative to 0.2.4, meaning npm 0.2.4 and the Action tag
 `v0.2.4`, both built from commit `63fd95e`. That commit shares no history with
