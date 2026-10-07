@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildCommentBody,
+  buildResultsTable,
   computeDelta,
   isRegression,
   escapeCell,
@@ -129,6 +130,24 @@ describe('buildCommentBody', () => {
     ]);
     expect(body).not.toContain('|<b>@');
     expect(body).toContain('\\|');
+  });
+});
+
+describe('buildResultsTable', () => {
+  it('escapes an eval name with an image tag and a pipe, and keeps three cells per row', () => {
+    const table = buildResultsTable([
+      { file: 'a|<img src=x>.eval.ts', passed: false, summary: 'x | <img src=y>' },
+    ]);
+    // A "<" is only allowed after a backslash, which is how escapeCell writes it.
+    expect(table).not.toMatch(/(?<!\\)</);
+    expect(table).toContain('a\\|\\<img src=x\\>.eval.ts');
+    const row = table.split('\n').find((line) => line.includes('FAIL')) ?? '';
+    expect(row.split(/(?<!\\)\|/)).toHaveLength(5);
+  });
+
+  it('is the table the PR comment shows', () => {
+    const results: EvalFileResult[] = [{ file: 'a.eval.ts', passed: true, summary: 'golden 2/2' }];
+    expect(buildCommentBody(results)).toContain(buildResultsTable(results));
   });
 });
 

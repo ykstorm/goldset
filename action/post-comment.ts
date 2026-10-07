@@ -86,6 +86,19 @@ export function computeDelta(
   return { regressed, fixed };
 }
 
+/**
+ * The markdown results table, one row per eval file. The PR comment and the job
+ * summary both render it, so eval-supplied text is escaped the same way in both.
+ */
+export function buildResultsTable(results: EvalFileResult[]): string {
+  let table = '| eval | status | details |\n|---|---|---|\n';
+  for (const r of results) {
+    const detail = escapeCell(rowDetail(r));
+    table += `| \`${escapeCell(r.file)}\` | ${r.passed ? 'PASS' : 'FAIL'} | ${detail} |\n`;
+  }
+  return table;
+}
+
 /** Build the full markdown comment body (table + optional delta section). */
 export function buildCommentBody(
   results: EvalFileResult[],
@@ -96,11 +109,7 @@ export function buildCommentBody(
 
   let body = `${COMMENT_MARKER}\n${HEADING}\n\n`;
   body += `**${passed}/${total} eval files passed.**\n\n`;
-  body += '| eval | status | details |\n|---|---|---|\n';
-  for (const r of results) {
-    const detail = escapeCell(rowDetail(r));
-    body += `| \`${escapeCell(r.file)}\` | ${r.passed ? 'PASS' : 'FAIL'} | ${detail} |\n`;
-  }
+  body += buildResultsTable(results);
 
   if (base && base.length) {
     const { regressed, fixed } = computeDelta(results, base);

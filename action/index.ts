@@ -7,10 +7,10 @@ import {
   buildCommentBody,
   postComment,
   isRegression,
-  rowDetail,
   type EvalFileResult,
   type CommentApi,
 } from './post-comment';
+import { writeSummary } from './summary';
 
 const RESULTS_PATH = 'goldset-results.json';
 
@@ -145,23 +145,6 @@ async function computeRegressionAndComment(
     }
   }
   return regressed;
-}
-
-async function writeSummary(results: EvalFileResult[]): Promise<void> {
-  if (!process.env.GITHUB_STEP_SUMMARY) return;
-  const rows: { data: string; header?: boolean }[][] = [
-    [
-      { data: 'eval', header: true },
-      { data: 'status', header: true },
-      { data: 'details', header: true },
-    ],
-    ...results.map((r) => [
-      { data: r.file },
-      { data: r.passed ? 'PASS' : 'FAIL' },
-      { data: rowDetail(r) },
-    ]),
-  ];
-  await core.summary.addHeading('Goldset Eval Results').addTable(rows).write();
 }
 
 async function run(): Promise<void> {
