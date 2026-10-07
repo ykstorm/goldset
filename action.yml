@@ -1,6 +1,6 @@
 name: "Goldset AI Eval Gate"
 author: "Lakshyaraj Singh Rao"
-description: "Run AI evals in CI: golden datasets, LLM-as-judge, structural assertions. PR delta comment, blocks merge on regression."
+description: "Run AI evals in CI: golden datasets, LLM-as-judge, structural assertions. PR delta comment; fails the check on regression."
 
 inputs:
   eval-dir:

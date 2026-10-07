@@ -1,7 +1,9 @@
 # Goldset architecture
 
 Goldset is two things in one repo: an npm library of eval runners, and a GitHub
-Action that runs a consumer's `*.eval.ts` files and gates the merge.
+Action that runs a consumer's `*.eval.ts` files and fails the check when one
+fails. Blocking the merge on that check is a branch protection setting in the
+consumer's repository.
 
 ## Library
 
@@ -11,7 +13,7 @@ Action that runs a consumer's `*.eval.ts` files and gates the merge.
 - `llmJudge` (`src/runners/api.ts`)
 - `grounding` (`src/runners/api.ts`)
 - `structural` (`src/runners/api.ts`, assertions in `src/runners/structural.ts`)
-- `runEval` / `toEvalResult` — combine runner results into one `EvalResult`
+- `runEval` and `toEvalResult`, which combine runner results into one `EvalResult`
 
 Each runner takes `(cases, config)`, calls the consumer-supplied `llm` (and, for
 `llmJudge`/`grounding`, a `judge`), and returns `{ runner, cases, summary }`. The
@@ -31,8 +33,10 @@ The Action entry is `action/index.ts` (bundled to `dist/action.cjs`). It:
 
 1. Discovers `*.eval.ts` under `eval-dir` (`action/run-evals.ts`), after
    resolving the directory under the workspace and rejecting path traversal.
-2. Runs each file on the pinned `tsx` CLI (`node <tsx> <file> --output json`),
-   with a per-eval timeout and an allowlisted child environment.
+   It fails if the directory holds no eval file.
+2. Runs each file on the consumer's own `tsx` CLI (`node <tsx> <file> --output
+   json`) with an allowlisted child environment. A per-eval time limit applies
+   only when the workflow sets `timeout-ms`; the default, 0, means no limit.
 3. Parses each eval's JSON into a per-file row and writes the array to
    `goldset-results.json`. When an eval prints no result, the row's error is
    the exit code followed by the last 20 lines of the eval's stderr; the step
@@ -79,10 +83,10 @@ git-ignored). The Action diffs this run against that file on the base branch.
 
 ## Design notes
 
-- **Four runners, not one.** Drifted facts, drifted tone, unsupported claims, and
+- Four runners, not one. Drifted facts, drifted tone, unsupported claims, and
   broken output shape are different failures; each runner catches one.
-- **Levenshtein, not embeddings, for `goldenDataset`.** It is deterministic and
+- Levenshtein, not embeddings, for `goldenDataset`. It is deterministic and
   dependency-free, and the drift it catches is character-level. A `normalize`
   hook lets you fold in your own comparison.
-- **The Action brings no model.** Each `.eval.ts` supplies its own `llm`/`judge`,
+- The Action brings no model. Each `.eval.ts` supplies its own `llm`/`judge`,
   so Goldset stays provider-agnostic.

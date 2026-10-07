@@ -16,8 +16,12 @@ All notable changes to this project are documented here. The format is based on
   `pass-env` input and the selected provider key; mask provider keys and the token.
 - Wrap untrusted judge-prompt content in escaped named tags, and clamp the parsed
   judge score to an integer in [0, 5] so an embedded score cannot raise a verdict.
-- Reject catastrophic-backtracking regexes, drop the global/sticky flags, and cap
-  tested text; use a length-capped two-row Levenshtein for similarity.
+- Probe each regex once in a `node:vm` context with a 200 ms limit on
+  1,000-character inputs and reject it if a probe does not finish, which catches
+  exponential backtracking such as `(a+)+$` and `(a|aa)+$`. A pattern that is
+  slow only in proportion to the square of the input still runs. Drop the
+  global/sticky flags and cap tested text at 100,000 characters; use a
+  length-capped two-row Levenshtein for similarity.
 - Sanitize eval-supplied cells and allowlist runner names in the PR comment, and
   match the bot comment by marker and Bot author.
 
@@ -31,7 +35,7 @@ All notable changes to this project are documented here. The format is based on
 ### Added
 
 - Full Apache-2.0 `LICENSE` text and a `NOTICE` file.
-- `timeout-ms` and `pass-env` Action inputs; `tsx` declared as an optional peer
+- `timeout-ms` and `pass-env` Action inputs; `tsx` declared as a peer
   dependency.
 
 ## [0.2.x]

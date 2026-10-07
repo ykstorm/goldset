@@ -1,20 +1,22 @@
 # Roadmap
 
-## v0.2 — Current: Four runners shipped
-- [x] `goldenDataset` — Levenshtein similarity, configurable threshold
-- [x] `llmJudge` — LLM-as-judge scoring, rubric-based
-- [x] `structural` — JSON schema, regex, substring, tool call shape assertions
-- [x] `grounding` — RAG faithfulness, answer supported by context
-- [x] GitHub Action — PR diff comments, merge-blocking on regression
-- [x] npm package — `@ykstormsorg/goldset`
+## v0.2: released as npm 0.2.4
+- [x] `goldenDataset`: Levenshtein similarity, configurable threshold
+- [x] `llmJudge`: LLM-as-judge scoring, rubric-based
+- [x] `structural`: JSON schema, regex, substring, tool call shape assertions
+- [x] GitHub Action: PR diff comments, fails the check on a failing eval
+- [x] npm package: `@ykstormsorg/goldset`
 - [x] Listed on GitHub Marketplace
 
-## v0.3 — CI improvements
+## v0.3: on `main`, not yet released
+- [x] `grounding`: RAG faithfulness, answer supported by context
+- [x] Judge verdict cache for `llmJudge` and `grounding`
+- [x] Action inputs `timeout-ms` and `pass-env`
 - [ ] Parallel eval runs (run goldenDataset, llmJudge, structural concurrently)
-- [ ] Eval result caching (skip cases already run with same code version)
+- [ ] Result caching for the other runners (skip cases already run with same code version)
 - [ ] `--dry` mode for CI sanity checks before committing eval changes
 
-## v1.0 — Production readiness
+## v1.0: production readiness
 - [ ] Standalone action bundle (no `npm ci` step in CI)
 - [ ] Structured rubric format (JSON dimensions vs freeform string)
 - [ ] Baseline drift alerts (notify when scores consistently change without PR)

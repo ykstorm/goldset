@@ -1,6 +1,7 @@
 # Goldset setup guide
 
-From zero to a CI-integrated AI eval gate.
+From zero to AI evals that run on every pull request and fail the check when
+they fail.
 
 ## Before you start
 
@@ -14,7 +15,12 @@ From zero to a CI-integrated AI eval gate.
 npm install --save-dev @ykstormsorg/goldset tsx
 ```
 
-`tsx` runs your `*.eval.ts` files; it is an optional peer dependency.
+`tsx` is required. It runs your `*.eval.ts` files locally and in the Action,
+and the Action stops with "tsx is not installed" when your project lacks it.
+
+npm `latest` is 0.2.4. The `grounding` runner, `parseJudgeScore`, the judge
+cache helpers and the Action inputs `timeout-ms` and `pass-env` arrive with
+0.3.0.
 
 ## 2. Write an eval file
 
@@ -22,7 +28,7 @@ npm install --save-dev @ykstormsorg/goldset tsx
 // evals/my-app.eval.ts
 import { goldenDataset, runEval } from '@ykstormsorg/goldset'
 
-// Your LLM — any provider behind (input: string) => Promise<string>.
+// Your LLM: any provider behind (input: string) => Promise<string>.
 const llm = async (input: string): Promise<string> => {
   // call your model here
   return 'some answer'
@@ -125,7 +131,8 @@ jobs:
           # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # if judge-provider: openai
 ```
 
-Inputs:
+Inputs, as of v0.3.0, the first release with `timeout-ms` and `pass-env`
+(the v0.2.4 tag has neither):
 
 | Input | Default | Description |
 |-------|---------|-------------|
@@ -133,8 +140,12 @@ Inputs:
 | `judge-provider` | `none` | `openai` \| `anthropic` \| `none`; sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key |
 | `comment-on-pr` | `true` | Post/update a results + delta comment on the PR |
 | `github-token` | `${{ github.token }}` | Token for the PR comment (wins over `GITHUB_TOKEN`) |
-| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |
+| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0, the default, means no limit |
 | `pass-env` | empty | Extra env var names to forward into each eval process |
+
+The Action fails the check; it does not block the merge by itself. To block a
+merge on a failing eval, add the job as a required status check in the branch
+protection rules for your default branch.
 
 ## 5. Enable the baseline
 
@@ -145,20 +156,22 @@ one produced on `main`. Until a baseline exists, the comment says "No baseline".
 ## 6. Handle regressions
 
 When an eval regresses, the PR comment marks it in the "Delta vs base" section and
-the check fails. Fix the root cause in your app, or — if the canonical answer
-legitimately changed — update the eval and commit the new `goldset-results.json`
+the check fails. Fix the root cause in your app, or, if the canonical answer
+legitimately changed, update the eval and commit the new `goldset-results.json`
 with an explanation.
 
 ## Troubleshooting
 
-- **"tsx is not installed"** — add it: `npm install -D tsx`.
+- "tsx is not installed": add it with `npm install -D tsx`.
 - An eval that crashes shows `eval exited N` in the PR comment. The step log
   has the same line followed by the last 20 lines of the eval's stderr.
 - "no *.eval.ts files found under ..." means the `eval-dir` input points at a
   folder with no eval files. Fix the path or add an eval file.
-- **Evals pass locally but fail in CI** — make sure the LLM/judge API key is set
-  in CI secrets and referenced under `env:`. The Action does not inject it.
-- **No PR comment** — the event must be a pull request and a token must be
+- Evals pass locally but fail in CI: make sure the LLM or judge API key is set
+  in CI secrets and referenced under `env:`. The Action forwards only the key of
+  the selected `judge-provider`; any other variable your eval reads must be named
+  in `pass-env`, because the Action drops everything outside its allowlist.
+- No PR comment: the event must be a pull request and a token must be
   available; `permissions: pull-requests: write` is required to post.
 
 See [API.md](./API.md) for the full API and [architecture.md](./architecture.md)

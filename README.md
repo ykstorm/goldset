@@ -2,7 +2,8 @@
 
 Run behavioral checks on your AI app in CI: golden datasets, an LLM judge,
 grounding, and structural assertions. Goldset posts a delta-vs-base comment on the
-pull request and fails the check when behavior regresses, so the merge is gated.
+pull request and fails the check when behavior regresses. A failed check blocks a
+merge only when branch protection lists it as a required status check.
 
 [![npm](https://img.shields.io/npm/v/@ykstormsorg/goldset.svg)](https://npmjs.com/package/@ykstormsorg/goldset)
 [![CI](https://github.com/ykstorm/goldset/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/goldset/actions/workflows/ci.yml)
@@ -25,8 +26,8 @@ pull request and fails the check when behavior regresses, so the merge is gated.
 
 A prompt edit has no compiler. Changing the wording in one part of a system prompt
 can shift behavior somewhere unrelated, and nothing fails until a user notices.
-Goldset gates prompt-adjacent merges on behavioral evals the same way type checks
-gate code. The runners execute in CI, post a delta-vs-base comment on the pull
+Goldset runs behavioral evals on every pull request the way a type checker runs
+on code. The runners execute in CI, post a delta-vs-base comment on the pull
 request, and fail the check when a golden case drifts, a judge rubric fails, an
 answer is unsupported by its context, or an output shape breaks. It is a check
 that fails, not a dashboard someone has to remember to open.
@@ -34,9 +35,11 @@ that fails, not a dashboard someone has to remember to open.
 ## What you get
 
 - Evals as code, living in the same repo as your app.
-- A GitHub Action with PR diff comments and merge-blocking on regression.
+- A GitHub Action that posts a PR diff comment and fails the check on a failing
+  or regressed eval.
 - Provider independence: plug in any `llm: (input) => Promise<string>`.
-- Four runners that catch four different failure modes.
+- Four runners that catch four different failure modes. `grounding` is new in
+  0.3.0; npm 0.2.4 ships the other three.
 
 | Runner | What it catches | Best for |
 |--------|-----------------|----------|
@@ -48,9 +51,15 @@ that fails, not a dashboard someone has to remember to open.
 ## Install
 
 ```bash
-npm install @ykstormsorg/goldset
-npm install -D tsx   # optional peer dep, used to run .eval.ts files directly
+npm install -D @ykstormsorg/goldset tsx
 ```
+
+tsx is required. It runs your `*.eval.ts` files, both locally and in the
+Action, which stops with "tsx is not installed" when it cannot find it.
+
+npm `latest` is 0.2.4, built from older code than this README describes. The
+`grounding` runner, `parseJudgeScore`, the judge cache helpers and the Action
+inputs `timeout-ms` and `pass-env` arrive with 0.3.0, the next release.
 
 ## Quickstart
 
@@ -161,16 +170,22 @@ jobs:
           # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # if judge-provider: openai
 ```
 
-For a supply-chain-hardened pin, reference the Action by commit SHA rather than a
-moving tag, for example `uses: ykstorm/goldset@<sha>  # v0.2.4`.
+To pin the exact code you run, reference the Action by commit SHA rather than by
+tag, for example `uses: ykstorm/goldset@<sha>  # v0.2.4`.
 
-The Action runs every `*.eval.ts` under `eval-dir` with the pinned `tsx` CLI
-(`--output json`), writes a combined `goldset-results.json`, posts or updates a PR
-comment with a results table and a delta-vs-base section, and fails the check if
-any eval fails or regresses against the base branch. It also fails when `eval-dir`
-holds no `*.eval.ts` file, so a typo in the path cannot give a green check.
+The Action runs every `*.eval.ts` under `eval-dir` with the `tsx` from your own
+install (`--output json`), writes a combined `goldset-results.json`, posts or
+updates a PR comment with a results table and a delta-vs-base section, and fails
+the check if any eval fails or regresses against the base branch. It also fails
+when `eval-dir` holds no `*.eval.ts` file, so a typo in the path cannot give a
+green check. To stop a failing check from being merged, add it as a required
+status check in the branch protection rules for your default branch.
 
 ## GitHub Action
+
+The inputs below are those of v0.3.0, the first release with `timeout-ms` and
+`pass-env`. The v0.2.4 tag has neither; it has a `fail-on-regression` input
+that never changed the result.
 
 | Input | Default | Description |
 |-------|---------|-------------|
@@ -178,8 +193,8 @@ holds no `*.eval.ts` file, so a typo in the path cannot give a green check.
 | `judge-provider` | `none` | `openai` \| `anthropic` \| `none`. Sets `GOLDSET_JUDGE_PROVIDER` and forwards that provider's key to your eval |
 | `comment-on-pr` | `true` | Post or update a results + delta comment on the PR |
 | `github-token` | `${{ github.token }}` | Token for the PR comment; wins over `GITHUB_TOKEN` |
-| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0 disables it |
-| `pass-env` | empty | Extra env var names to forward into each eval process |
+| `timeout-ms` | `0` | Per-eval wall-clock limit in ms; 0, the default, means no limit. New in v0.3.0 |
+| `pass-env` | empty | Extra env var names to forward into each eval process. New in v0.3.0 |
 
 Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
 
@@ -190,14 +205,14 @@ Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
 | Golden dataset | `goldenDataset(cases, { llm, threshold })` | Output drifted from the canonical answer (Levenshtein similarity vs a threshold) |
 | LLM-as-judge | `llmJudge(cases, { llm, judge, rubric })` | Behavior regression on open-ended outputs (a second LLM scores against a rubric) |
 | Structural | `structural(cases, { llm, assertions })` | Output shape broke (JSON schema, regex, substring, tool-call shape) |
-| Grounding | `grounding(cases, { llm, judge })` | Answer makes claims the provided context does not support |
+| Grounding | `grounding(cases, { llm, judge })` | Answer makes claims the provided context does not support (new in 0.3.0) |
 
 See the full [API reference](docs/API.md).
 
 ## Performance
 
 The golden and structural runners are pure CPU and run on every PR, so they have
-to be fast enough never to block one. Numbers below are one run on Node 24 with
+to be fast enough not to slow one down. Numbers below are one run on Node 24 with
 1000 synthetic cases and a stub `llm` (no provider call), measured 2026-10-01:
 
 | Runner | 1000 cases | per case |
@@ -205,16 +220,18 @@ to be fast enough never to block one. Numbers below are one run on Node 24 with
 | Structural (json-schema + regex + contains) | 3.3 ms | ~3.3 µs |
 | Golden (Levenshtein similarity) | 29.8 ms | ~30 µs |
 
-A full PR's worth of deterministic checks is milliseconds, so the eval gate does
+A full PR's worth of deterministic checks is milliseconds, so the eval step does
 not become the slow step. Reproduce with `node bench/runners.mjs` (no API key).
+Single runs vary by machine: CI run 37342987915 on Node 20 measured 5.19 ms and
+9.38 ms for the same two rows.
 
 ### LLM-judge cost
 
 The judge is the one runner that spends money, because it calls a model to score
 each case. `bench/judge.mjs` prices exactly that: the real `llmJudge` runner with
-a free stub `llm` and a real Claude Haiku judge. One run in CI against
-`claude-haiku-4-5` over 8 cases (workflow_dispatch, one call per case), measured
-2026-10-01:
+a free stub `llm` and a real Claude Haiku judge. It has run once, as CI run
+28743738091 on 2026-07-05, against `claude-haiku-4-5` over 8 cases (manual
+dispatch, one call per case):
 
 | Metric | Result |
 |---|---|

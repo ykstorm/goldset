@@ -120,6 +120,7 @@ interface GroundingConfig {
   judge: (prompt: string) => Promise<string> | string
   passThreshold?: number   // default 3
   verbose?: boolean
+  cache?: JudgeCache       // reuse verdicts; see "Caching judge verdicts"
 }
 
 interface GroundingResult {
@@ -191,18 +192,23 @@ Assertion types:
   100,000-character cap on the tested text bounds that work, though a long
   enough output can still take seconds. The global and sticky flags are
   ignored.
-- `contains` — output contains the substring.
-- `tool-call-shape` — output is a JSON tool call (or array of calls) with the
+- `contains`: output contains the substring.
+- `tool-call-shape`: output is a JSON tool call (or array of calls) with the
   given `toolName` and, optionally, exactly `argCount` arguments.
 
 ## runEval(...runnerResults) and toEvalResult(...runnerResults)
 
 `toEvalResult` combines runner results into the shape the GitHub Action consumes.
 Two results from the same runner are merged (cases concatenated, summaries
-re-aggregated). Pass `{ stable: true }` as the last argument to omit the volatile
-`timestamp`/`commit`/`branch` fields for deterministic output. `runEval` does the
-same, prints a human summary (or the JSON blob when invoked with `--output json`,
-as the Action does), and exits 1 if any runner failed.
+re-aggregated). Pass `{ stable: true }` as the last argument to `toEvalResult`
+to empty the volatile `timestamp`, `commit` and `branch` fields for
+deterministic output.
+
+`runEval` takes runner results only, not the options object. It combines them
+the same way, prints a human summary (or the JSON line when invoked with
+`--output json`, as the Action does), and sets `process.exitCode` to 1 if any
+runner failed. It does not call `process.exit`, so output still in the pipe is
+written before the process ends.
 
 ```ts
 interface EvalResult {

@@ -94,9 +94,17 @@ describe('llmJudge', () => {
     );
 
     expect(result.cases[0].passed).toBe(true);
-    // The judge prompt must not contain an "Expected:" line when omitted.
+    // The prompt carries an <expected> section only when the case has one.
     const prompt = mockJudge.mock.calls[0][0] as string;
-    expect(prompt).not.toContain('Expected:');
+    expect(prompt).not.toContain('<expected>');
+    expect(prompt).toContain('<output>');
+
+    await llmJudge(
+      [{ id: 'with-expected', input: 'Hello', expected: 'a friendly hello' }],
+      { llm: mockLLM, judge: mockJudge, rubric: 'Score friendliness 1-5' }
+    );
+    const withExpected = mockJudge.mock.calls[1][0] as string;
+    expect(withExpected).toContain('<expected>\na friendly hello\n</expected>');
   });
 
   it('should evaluate multiple cases in order', async () => {
