@@ -164,7 +164,7 @@ interface EvalResult {
     passed: boolean;
 }
 type AnyRunnerResult = GoldenResult | JudgeResult | StructuralResult | GroundingResult;
-/** Options object `toEvalResult`/`runEval` accept as a trailing argument. */
+/** Options object `toEvalResult` accepts as a trailing argument. `runEval` takes runner results only. */
 interface ToEvalResultOptions {
     /** Omit the volatile timestamp/commit/branch fields for deterministic output. */
     stable?: boolean;
@@ -177,10 +177,12 @@ interface ToEvalResultOptions {
  */
 declare function toEvalResult(...args: (AnyRunnerResult | ToEvalResultOptions)[]): EvalResult;
 /**
- * Convenience harness for an `.eval.ts` file. Runs the provided runners,
- * prints a human summary, and — when invoked with `--output json` (as the
- * Goldset Action does) — prints the `EvalResult` JSON to stdout. Calls
- * Sets a non-zero exit code if any runner failed so the Action can gate the merge.
+ * Convenience harness for an `.eval.ts` file. Combines the runner results,
+ * prints a human summary, or, when invoked with `--output json` as the Goldset
+ * Action does, prints the `EvalResult` JSON line to stdout. Sets
+ * `process.exitCode` to 1 if any runner failed, so the Action fails the check.
+ * Takes runner results only; call `toEvalResult` for the `{ stable: true }`
+ * option.
  */
 declare function runEval(...runnerResults: AnyRunnerResult[]): Promise<EvalResult>;
 

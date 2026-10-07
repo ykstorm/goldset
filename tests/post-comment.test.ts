@@ -115,6 +115,14 @@ describe('buildCommentBody', () => {
     expect(body).toContain('a \\| b \\| c');
   });
 
+  it('shows only the first line of an error, so stderr stays out of the comment', () => {
+    const body = buildCommentBody([
+      { file: 'x.eval.ts', passed: false, error: 'eval exited 1\nstderr, last 20 lines:\nsecret-ish log line' },
+    ]);
+    expect(body).toContain('| eval exited 1 |');
+    expect(body).not.toContain('secret-ish');
+  });
+
   it('sanitizes an injected eval file name', () => {
     const body = buildCommentBody([
       { file: 'evil|<b>@a.eval.ts', passed: true, summary: 'ok' },

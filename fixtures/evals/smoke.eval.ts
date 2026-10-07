@@ -11,14 +11,21 @@ const llm = (input: string): string =>
     ? JSON.stringify({ ok: true })
     : 'The quick brown fox';
 
-const golden = await goldenDataset(
-  [{ id: 'fox', input: 'say the fox line', expected: 'The quick brown fox' }],
-  { llm, threshold: 0.9 }
-);
+async function main(): Promise<void> {
+  const golden = await goldenDataset(
+    [{ id: 'fox', input: 'say the fox line', expected: 'The quick brown fox' }],
+    { llm, threshold: 0.9 }
+  );
 
-const shape = await structural(
-  [{ id: 'json', input: 'emit json' }],
-  { llm, assertions: [{ type: 'json-schema', schema: { type: 'object', properties: { ok: {} } } }] }
-);
+  const shape = await structural(
+    [{ id: 'json', input: 'emit json' }],
+    { llm, assertions: [{ type: 'json-schema', schema: { type: 'object', properties: { ok: {} } } }] }
+  );
 
-await runEval(golden, shape);
+  await runEval(golden, shape);
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});

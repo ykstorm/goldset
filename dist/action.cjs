@@ -24382,6 +24382,8 @@ var import_node_child_process = require("child_process");
 var import_node_module = require("module");
 var import_node_fs = __toESM(require("fs"), 1);
 var import_node_path = __toESM(require("path"), 1);
+var STDERR_TAIL_LINES = 20;
+var STDERR_TAIL_MAX_CHARS = 4e3;
 var BASE_ENV_ALLOWLIST = [
   "PATH",
   "Path",
@@ -24457,37 +24459,46 @@ function defaultRunFile(file, cwd, env, tsxCli, timeoutMs) {
   });
   const errCode = res.error?.code;
   const timedOut = res.signal === "SIGTERM" || errCode === "ETIMEDOUT";
-  return { stdout: res.stdout ?? "", exitCode: res.status ?? 1, timedOut };
+  return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", exitCode: res.status ?? 1, timedOut };
 }
-function parseEvalOutput(file, stdout, exitCode, timedOut = false) {
-  const base = import_node_path.default.basename(file);
-  if (timedOut) {
-    return { file: base, passed: false, error: "eval timed out" };
+function errorRow(file, message, stderr) {
+  const tail = stderr.split(/\r?\n/).filter((l) => l.trim() !== "").slice(-STDERR_TAIL_LINES).join("\n").slice(-STDERR_TAIL_MAX_CHARS);
+  const error2 = tail ? `${message}
+stderr, last ${STDERR_TAIL_LINES} lines:
+${tail}` : message;
+  return { file, passed: false, error: error2 };
+}
+function readRunners(raw = {}) {
+  const runners = {};
+  const parts = [];
+  for (const [name, r] of Object.entries(raw)) {
+    if (!KNOWN_RUNNERS.has(name)) continue;
+    const s = r?.summary;
+    if (s && Number.isFinite(s.passed) && Number.isFinite(s.failed)) {
+      runners[name] = { passed: s.passed, failed: s.failed };
+      parts.push(`${name} ${s.passed}/${s.passed + s.failed}`);
+    }
   }
+  return { runners, parts };
+}
+function parseEvalOutput(file, stdout, exitCode, timedOut = false, stderr = "") {
+  const base = import_node_path.default.basename(file);
+  if (timedOut) return errorRow(base, "eval timed out", stderr);
   const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const jsonText = [...lines].reverse().find((l) => l.startsWith("{") && l.endsWith("}")) ?? "";
   try {
     const parsed = JSON.parse(jsonText);
-    const runners = {};
-    const summaryParts = [];
-    for (const [name, r] of Object.entries(parsed.runners ?? {})) {
-      if (!KNOWN_RUNNERS.has(name)) continue;
-      const s = r?.summary;
-      if (s && Number.isFinite(s.passed) && Number.isFinite(s.failed)) {
-        runners[name] = { passed: s.passed, failed: s.failed };
-        summaryParts.push(`${name} ${s.passed}/${s.passed + s.failed}`);
-      }
-    }
+    const { runners, parts } = readRunners(parsed.runners);
     const passed = parsed.passed ?? exitCode === 0;
     return {
       file: base,
       passed,
-      summary: summaryParts.join(", ") || (passed ? "passed" : "failed"),
+      summary: parts.join(", ") || (passed ? "passed" : "failed"),
       runners
     };
   } catch {
-    const raw = exitCode === 0 ? "eval produced no parseable JSON on stdout" : `eval exited ${exitCode}`;
-    return { file: base, passed: false, error: raw.slice(0, 200) };
+    const message = exitCode === 0 ? "eval produced no parseable JSON on stdout" : `eval exited ${exitCode}`;
+    return errorRow(base, message, stderr);
   }
 }
 function findEvalFiles(dir) {
@@ -24508,6 +24519,9 @@ async function runEvals(opts) {
   const dir = resolveEvalDir(cwd, opts.evalDir);
   const env = buildChildEnv(opts.judgeProvider, opts.passEnv);
   const files = findEvalFiles(dir);
+  if (files.length === 0) {
+    throw new Error(`no *.eval.ts files found under ${dir} (eval-dir: ${opts.evalDir}). Check the eval-dir input.`);
+  }
   let run2 = opts.runFile;
   if (!run2) {
     const tsxCli = resolveTsxCli(cwd);
@@ -24520,8 +24534,8 @@ async function runEvals(opts) {
   }
   const results = [];
   for (const file of files) {
-    const { stdout, exitCode, timedOut } = run2(file);
-    results.push(parseEvalOutput(file, stdout, exitCode, timedOut));
+    const { stdout, stderr, exitCode, timedOut } = run2(file);
+    results.push(parseEvalOutput(file, stdout, exitCode, timedOut, stderr));
   }
   return results;
 }
@@ -24533,6 +24547,9 @@ function escapeCell(value) {
   const stripped = String(value).replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
   const capped = stripped.length > 200 ? stripped.slice(0, 200) : stripped;
   return capped.replace(/[`|<>@]/g, (c) => `\\${c}`);
+}
+function rowDetail(r) {
+  return r.summary ?? r.error?.split("\n")[0] ?? "";
 }
 function isRegression(current, base) {
   if (!base || base.length === 0) return false;
@@ -24566,7 +24583,7 @@ ${HEADING}
 `;
   body += "| eval | status | details |\n|---|---|---|\n";
   for (const r of results) {
-    const detail = escapeCell(r.summary ?? r.error ?? "");
+    const detail = escapeCell(rowDetail(r));
     body += `| \`${escapeCell(r.file)}\` | ${r.passed ? "PASS" : "FAIL"} | ${detail} |
 `;
   }
@@ -24719,7 +24736,7 @@ async function writeSummary(results) {
     ...results.map((r) => [
       { data: r.file },
       { data: r.passed ? "PASS" : "FAIL" },
-      { data: r.summary ?? r.error ?? "" }
+      { data: rowDetail(r) }
     ])
   ];
   await summary.addHeading("Goldset Eval Results").addTable(rows).write();
@@ -24734,8 +24751,8 @@ async function run() {
     timeoutMs: inputs.timeoutMs,
     passEnv: inputs.passEnv
   });
-  if (results.length === 0) {
-    warning(`[goldset] no *.eval.ts files found under ${inputs.evalDir}/`);
+  for (const r of results) {
+    if (r.error) error(`${r.file}: ${r.error}`);
   }
   const { total, passed, failed } = writeResults(results);
   const regressed = await computeRegressionAndComment(results, inputs);

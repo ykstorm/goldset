@@ -7,6 +7,7 @@ import {
   buildCommentBody,
   postComment,
   isRegression,
+  rowDetail,
   type EvalFileResult,
   type CommentApi,
 } from './post-comment';
@@ -157,7 +158,7 @@ async function writeSummary(results: EvalFileResult[]): Promise<void> {
     ...results.map((r) => [
       { data: r.file },
       { data: r.passed ? 'PASS' : 'FAIL' },
-      { data: r.summary ?? r.error ?? '' },
+      { data: rowDetail(r) },
     ]),
   ];
   await core.summary.addHeading('Goldset Eval Results').addTable(rows).write();
@@ -174,8 +175,10 @@ async function run(): Promise<void> {
     timeoutMs: inputs.timeoutMs,
     passEnv: inputs.passEnv,
   });
-  if (results.length === 0) {
-    core.warning(`[goldset] no *.eval.ts files found under ${inputs.evalDir}/`);
+
+  // The full error, stderr tail included, goes to the step log only.
+  for (const r of results) {
+    if (r.error) core.error(`${r.file}: ${r.error}`);
   }
 
   const { total, passed, failed } = writeResults(results);

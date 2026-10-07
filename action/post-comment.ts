@@ -47,6 +47,15 @@ export function escapeCell(value: string): string {
   return capped.replace(/[`|<>@]/g, (c) => `\\${c}`);
 }
 
+/**
+ * The text a table shows for a row: its summary, or the first line of its
+ * error. Later error lines hold the eval's stderr, which belongs in the step
+ * log, not in a comment anyone can read.
+ */
+export function rowDetail(r: EvalFileResult): string {
+  return r.summary ?? r.error?.split('\n')[0] ?? '';
+}
+
 /** True if any eval that passed on the base branch now fails. */
 export function isRegression(
   current: EvalFileResult[],
@@ -89,7 +98,7 @@ export function buildCommentBody(
   body += `**${passed}/${total} eval files passed.**\n\n`;
   body += '| eval | status | details |\n|---|---|---|\n';
   for (const r of results) {
-    const detail = escapeCell(r.summary ?? r.error ?? '');
+    const detail = escapeCell(rowDetail(r));
     body += `| \`${escapeCell(r.file)}\` | ${r.passed ? 'PASS' : 'FAIL'} | ${detail} |\n`;
   }
 

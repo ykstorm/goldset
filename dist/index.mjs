@@ -37,6 +37,7 @@ function calculateSimilarity(str1, str2) {
 }
 
 // src/runners/structural.ts
+import { createContext, Script } from "vm";
 function jsonTypeMatches(value, type) {
   switch (type) {
     case "string":
@@ -57,6 +58,10 @@ function jsonTypeMatches(value, type) {
       return true;
   }
 }
+function describesObject(schema) {
+  if (schema.type !== void 0) return schema.type === "object";
+  return schema.properties !== void 0 || schema.required !== void 0;
+}
 function validateJsonSchema(output, schema) {
   let parsed;
   try {
@@ -64,8 +69,7 @@ function validateJsonSchema(output, schema) {
   } catch {
     return { type: "json-schema", reason: "output is not valid JSON" };
   }
-  const wantsObject = schema.type === "object" || schema.properties !== void 0;
-  if (!wantsObject) {
+  if (!describesObject(schema)) {
     if (typeof schema.type === "string" && !jsonTypeMatches(parsed, schema.type)) {
       return { type: "json-schema", reason: `output is not of type ${schema.type}` };
     }
@@ -90,59 +94,48 @@ function objectSchemaProblem(obj, schema) {
   return null;
 }
 var MAX_REGEX_INPUT = 1e5;
-function isReDoSRisk(source) {
-  const open = [];
-  let inClass = false;
-  const unboundedAt = (i) => {
-    const c = source[i];
-    if (c === "*" || c === "+") return true;
-    if (c === "{") return /^\{\d*,\}/.test(source.slice(i));
-    return false;
-  };
-  const markParent = () => {
-    if (open.length) open[open.length - 1] = true;
-  };
-  for (let i = 0; i < source.length; i += 1) {
-    const c = source[i];
-    if (c === "\\") {
-      i += 1;
-      continue;
+var PROBE_LENGTH = 1e3;
+var PROBE_TIMEOUT_MS = 200;
+var PROBE_SCRIPT = new Script("pattern.test(probe)");
+var probeVerdicts = /* @__PURE__ */ new Map();
+function probeInputs(source) {
+  const groupChars = [...source.matchAll(/\(([^()]*)\)/g)].map(
+    (m) => m[1].replace(/^\?(?:[:=!]|<[=!]|<[^>]*>)/, "").replace(/\\./g, "").replace(/[|[\]{}?*+^$.]/g, "")
+  );
+  const units = [.../* @__PURE__ */ new Set(["a", "1", " ", ...groupChars])].filter(Boolean);
+  return units.map((unit) => unit.repeat(Math.ceil(PROBE_LENGTH / unit.length)) + "!");
+}
+function isReDoSRisk(regex) {
+  const key = String(regex);
+  const known = probeVerdicts.get(key);
+  if (known !== void 0) return known;
+  const context = createContext({ pattern: regex, probe: "" });
+  const risky = probeInputs(regex.source).some((probe) => {
+    context.probe = probe;
+    try {
+      PROBE_SCRIPT.runInContext(context, { timeout: PROBE_TIMEOUT_MS });
+      return false;
+    } catch {
+      return true;
     }
-    if (inClass) {
-      if (c === "]") inClass = false;
-      continue;
-    }
-    if (c === "[") {
-      inClass = true;
-      continue;
-    }
-    if (c === "(") {
-      open.push(false);
-      continue;
-    }
-    if (c === ")") {
-      if (!open.length) continue;
-      const bodyHasQuant = open.pop();
-      const quantified = unboundedAt(i + 1);
-      if (quantified && bodyHasQuant) return true;
-      if (bodyHasQuant || quantified) markParent();
-      continue;
-    }
-    if (unboundedAt(i)) markParent();
-  }
-  return false;
+  });
+  probeVerdicts.set(key, risky);
+  return risky;
 }
 function validateRegex(output, pattern, flags) {
   const source = typeof pattern === "string" ? pattern : pattern.source;
-  if (isReDoSRisk(source)) {
-    return { type: "regex", reason: `unsafe regex (nested quantifier): ${source}` };
-  }
   let regex;
   try {
     const rawFlags = typeof pattern === "string" ? flags ?? "" : pattern.flags;
     regex = new RegExp(source, rawFlags.replace(/[gy]/g, ""));
   } catch {
     return { type: "regex", reason: `invalid regex: ${source}` };
+  }
+  if (isReDoSRisk(regex)) {
+    return {
+      type: "regex",
+      reason: `unsafe regex (a ${PROBE_LENGTH}-character probe did not finish within ${PROBE_TIMEOUT_MS} ms): ${source}`
+    };
   }
   const text = output.length > MAX_REGEX_INPUT ? output.slice(0, MAX_REGEX_INPUT) : output;
   return regex.test(text) ? null : { type: "regex", reason: `output did not match ${String(regex)}` };

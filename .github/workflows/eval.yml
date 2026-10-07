@@ -1,8 +1,8 @@
 name: Goldset Eval (dogfood)
 
 # Runs Goldset against its own evals/ suite on every PR. This is the live proof
-# that the Action evaluates real evals, gates the merge on failure, and posts a
-# results + delta comment on the PR.
+# that the Action evaluates real evals, fails the check on a failing eval, and
+# posts a results + delta comment on the PR.
 
 on:
   pull_request:
@@ -38,7 +38,6 @@ jobs:
           # to let your .eval.ts judges call a provider. The dogfood suite is
           # hermetic, so 'none' is correct here.
           judge-provider: none
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

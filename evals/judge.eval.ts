@@ -33,12 +33,19 @@ if (provider) {
   console.error(`[judge.eval] GOLDSET_JUDGE_PROVIDER=${provider} (using local judge for CI)`);
 }
 
-const judged = await llmJudge(
-  [
-    { id: 'english', input: 'How does this work?' },
-    { id: 'hindi', input: 'यह कैसे काम करता है?' },
-  ],
-  { llm, judge: localJudge, rubric: 'Score 5 if response language matches input.', passThreshold: 3 }
-);
+async function main(): Promise<void> {
+  const judged = await llmJudge(
+    [
+      { id: 'english', input: 'How does this work?' },
+      { id: 'hindi', input: 'यह कैसे काम करता है?' },
+    ],
+    { llm, judge: localJudge, rubric: 'Score 5 if response language matches input.', passThreshold: 3 }
+  );
 
-await runEval(judged);
+  await runEval(judged);
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});

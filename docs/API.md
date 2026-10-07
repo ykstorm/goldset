@@ -120,6 +120,7 @@ interface GroundingConfig {
   judge: (prompt: string) => Promise<string> | string
   passThreshold?: number   // default 3
   verbose?: boolean
+  cache?: JudgeCache       // reuse verdicts; see "Caching judge verdicts"
 }
 
 interface GroundingResult {
@@ -175,26 +176,39 @@ interface StructuralResult {
 
 Assertion types:
 
-- `json-schema`: output parses as JSON. With `type: 'object'` or `properties`
-  it must be an object, every property in `required` (or every key of
-  `properties` when `required` is absent) must be present and not null, and a
-  property with a `type` must have it. A top-level primitive `type` is checked
-  too. Nested schemas are not checked.
-- `regex` — output matches the pattern. Patterns with nested unbounded
-  quantifiers (the `(a+)+` family) are rejected rather than run, the global and
-  sticky flags are ignored, and the tested text is capped at 100,000 characters.
-- `contains` — output contains the substring.
-- `tool-call-shape` — output is a JSON tool call (or array of calls) with the
+- `json-schema`: output parses as JSON. With `type: 'object'`, or with
+  `properties` or `required` and no `type`, it must be an object, every
+  property in `required` (or every key of `properties` when `required` is
+  absent) must be present and not null, and a property with a `type` must have
+  it. Any other top-level `type` is checked on its own. Nested schemas are not
+  checked.
+- `regex`: output matches the pattern. Before a pattern runs on any output it
+  is tried once, in a `node:vm` context with a 200 ms limit, on a few
+  1,000-character probe strings: runs of a letter, a digit, a space and the
+  literal characters of each group in the pattern. A pattern that does not
+  finish is rejected rather than run. This catches exponential backtracking
+  such as `(a+)+$`, `(a|aa)+$` and `(\d|\d)+$`. A pattern that is slow only in
+  proportion to the square of the input, such as `\s+$`, still runs; the
+  100,000-character cap on the tested text bounds that work, though a long
+  enough output can still take seconds. The global and sticky flags are
+  ignored.
+- `contains`: output contains the substring.
+- `tool-call-shape`: output is a JSON tool call (or array of calls) with the
   given `toolName` and, optionally, exactly `argCount` arguments.
 
 ## runEval(...runnerResults) and toEvalResult(...runnerResults)
 
 `toEvalResult` combines runner results into the shape the GitHub Action consumes.
 Two results from the same runner are merged (cases concatenated, summaries
-re-aggregated). Pass `{ stable: true }` as the last argument to omit the volatile
-`timestamp`/`commit`/`branch` fields for deterministic output. `runEval` does the
-same, prints a human summary (or the JSON blob when invoked with `--output json`,
-as the Action does), and exits 1 if any runner failed.
+re-aggregated). Pass `{ stable: true }` as the last argument to `toEvalResult`
+to empty the volatile `timestamp`, `commit` and `branch` fields for
+deterministic output.
+
+`runEval` takes runner results only, not the options object. It combines them
+the same way, prints a human summary (or the JSON line when invoked with
+`--output json`, as the Action does), and sets `process.exitCode` to 1 if any
+runner failed. It does not call `process.exit`, so output still in the pipe is
+written before the process ends.
 
 ```ts
 interface EvalResult {

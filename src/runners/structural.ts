@@ -1,5 +1,6 @@
 // Assertion vocabulary and validators. The structural() runner in ./api.ts
 // consumes applyAssertions from here.
+import { createContext, Script } from 'node:vm';
 
 export type AssertionType = 'json-schema' | 'regex' | 'contains' | 'tool-call-shape';
 
@@ -33,6 +34,15 @@ function jsonTypeMatches(value: unknown, type: string): boolean {
 }
 
 /**
+ * Does the schema describe an object? Yes for `type: 'object'`, and for a
+ * schema with no `type` that has `properties` or `required`.
+ */
+function describesObject(schema: Record<string, unknown>): boolean {
+  if (schema.type !== undefined) return schema.type === 'object';
+  return schema.properties !== undefined || schema.required !== undefined;
+}
+
+/**
  * Validates JSON output against a small subset of JSON Schema: the top-level
  * `type`; for objects, every property in `required` (or every key of
  * `properties` when `required` is absent) must be present and not null, and a
@@ -48,8 +58,7 @@ function validateJsonSchema(
   } catch {
     return { type: 'json-schema', reason: 'output is not valid JSON' };
   }
-  const wantsObject = schema.type === 'object' || schema.properties !== undefined;
-  if (!wantsObject) {
+  if (!describesObject(schema)) {
     if (typeof schema.type === 'string' && !jsonTypeMatches(parsed, schema.type)) {
       return { type: 'json-schema', reason: `output is not of type ${schema.type}` };
     }
@@ -80,47 +89,65 @@ function objectSchemaProblem(obj: Record<string, unknown>, schema: Record<string
 const MAX_REGEX_INPUT = 100_000;
 
 /**
- * Flag a regex at risk of catastrophic backtracking: an unbounded quantifier
- * (`*`, `+`, `{n,}`) applied to a group whose body already contains an unbounded
- * quantifier — the `(a+)+` family. A cheap star-height walk, not a full parser,
- * but it rejects the exponential shapes before they ever run.
+ * Length of each probe string. Exponential backtracking never finishes at this
+ * length, while an ordinary pattern that is slow only in proportion to the
+ * square of the input finishes in about a millisecond.
  */
-function isReDoSRisk(source: string): boolean {
-  // one flag per open group: has its body seen an unbounded quantifier yet
-  const open: boolean[] = [];
-  let inClass = false;
-  const unboundedAt = (i: number): boolean => {
-    const c = source[i];
-    if (c === '*' || c === '+') return true;
-    if (c === '{') return /^\{\d*,\}/.test(source.slice(i));
-    return false;
-  };
-  const markParent = (): void => {
-    if (open.length) open[open.length - 1] = true;
-  };
-  for (let i = 0; i < source.length; i += 1) {
-    const c = source[i];
-    if (c === '\\') { i += 1; continue; } // skip the escaped char
-    if (inClass) { if (c === ']') inClass = false; continue; }
-    if (c === '[') { inClass = true; continue; }
-    if (c === '(') { open.push(false); continue; }
-    if (c === ')') {
-      if (!open.length) continue;
-      const bodyHasQuant = open.pop() as boolean;
-      const quantified = unboundedAt(i + 1);
-      if (quantified && bodyHasQuant) return true;
-      if (bodyHasQuant || quantified) markParent();
-      continue;
-    }
-    if (unboundedAt(i)) markParent();
-  }
-  return false;
+const PROBE_LENGTH = 1_000;
+
+/** A probe still running after this is stopped and the pattern rejected. */
+const PROBE_TIMEOUT_MS = 200;
+
+// A timer cannot interrupt a test() that never returns, but a vm script's
+// timeout can, so each probe runs as a script in its own context.
+const PROBE_SCRIPT = new Script('pattern.test(probe)');
+
+/** Verdicts by pattern and flags, so each pattern is probed once per process. */
+const probeVerdicts = new Map<string, boolean>();
+
+/**
+ * Inputs where backtracking blows up: long runs of a letter, a digit and a
+ * space, and of the literal characters inside each innermost group of the
+ * pattern, each followed by a character that makes the match fail.
+ */
+function probeInputs(source: string): string[] {
+  const groupChars = [...source.matchAll(/\(([^()]*)\)/g)].map((m) =>
+    m[1]
+      .replace(/^\?(?:[:=!]|<[=!]|<[^>]*>)/, '')
+      .replace(/\\./g, '')
+      .replace(/[|[\]{}?*+^$.]/g, '')
+  );
+  const units = [...new Set(['a', '1', ' ', ...groupChars])].filter(Boolean);
+  return units.map((unit) => unit.repeat(Math.ceil(PROBE_LENGTH / unit.length)) + '!');
 }
 
 /**
- * Validates output matches regex pattern. The pattern is screened for
- * catastrophic-backtracking shapes, the global/sticky flags are dropped (so the
- * test is stateless), and the tested text is length-capped.
+ * Flag a regex at risk of catastrophic backtracking by running it on the probe
+ * inputs with a time limit. Any probe that does not finish within
+ * PROBE_TIMEOUT_MS, or throws, marks the pattern as unsafe.
+ */
+function isReDoSRisk(regex: RegExp): boolean {
+  const key = String(regex);
+  const known = probeVerdicts.get(key);
+  if (known !== undefined) return known;
+  const context = createContext({ pattern: regex, probe: '' });
+  const risky = probeInputs(regex.source).some((probe) => {
+    context.probe = probe;
+    try {
+      PROBE_SCRIPT.runInContext(context, { timeout: PROBE_TIMEOUT_MS });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  probeVerdicts.set(key, risky);
+  return risky;
+}
+
+/**
+ * Validates output matches regex pattern. The global/sticky flags are dropped
+ * (so the test is stateless), the pattern is probed for catastrophic
+ * backtracking before it runs, and the tested text is length-capped.
  */
 function validateRegex(
   output: string,
@@ -128,15 +155,18 @@ function validateRegex(
   flags?: string
 ): AssertionFailure | null {
   const source = typeof pattern === 'string' ? pattern : pattern.source;
-  if (isReDoSRisk(source)) {
-    return { type: 'regex', reason: `unsafe regex (nested quantifier): ${source}` };
-  }
   let regex: RegExp;
   try {
     const rawFlags = typeof pattern === 'string' ? flags ?? '' : pattern.flags;
     regex = new RegExp(source, rawFlags.replace(/[gy]/g, ''));
   } catch {
     return { type: 'regex', reason: `invalid regex: ${source}` };
+  }
+  if (isReDoSRisk(regex)) {
+    return {
+      type: 'regex',
+      reason: `unsafe regex (a ${PROBE_LENGTH}-character probe did not finish within ${PROBE_TIMEOUT_MS} ms): ${source}`,
+    };
   }
   const text = output.length > MAX_REGEX_INPUT ? output.slice(0, MAX_REGEX_INPUT) : output;
   return regex.test(text)

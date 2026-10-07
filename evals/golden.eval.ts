@@ -16,21 +16,28 @@ const canned: Record<string, string> = {
 
 const llm = (input: string): string => canned[input] ?? '';
 
-const golden = await goldenDataset(
-  [
-    {
-      id: 'refund',
-      input: 'How do I get a refund?',
-      expected: 'Email support@example.com for refunds.',
-    },
-    {
-      id: 'shipping',
-      input: 'When does my order ship?',
-      expected: 'Check your order status page.',
-    },
-    { id: 'greeting', input: 'Hello!', expected: 'Hello! How can I help you today?' },
-  ],
-  { llm, threshold: 0.85 }
-);
+async function main(): Promise<void> {
+  const golden = await goldenDataset(
+    [
+      {
+        id: 'refund',
+        input: 'How do I get a refund?',
+        expected: 'Email support@example.com for refunds.',
+      },
+      {
+        id: 'shipping',
+        input: 'When does my order ship?',
+        expected: 'Check your order status page.',
+      },
+      { id: 'greeting', input: 'Hello!', expected: 'Hello! How can I help you today?' },
+    ],
+    { llm, threshold: 0.85 }
+  );
 
-await runEval(golden);
+  await runEval(golden);
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});

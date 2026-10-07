@@ -90,7 +90,6 @@ jobs:
         with:
           eval-dir: evals
           judge-provider: none
-          fail-on-regression: true
           comment-on-pr: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,8 +113,8 @@ jobs:
       - run: npm run build
       - name: Tag must match package.json
         # A v* tag without a version bump would fail at publish with a
-        # confusing error; say so first. A major tag such as v1 is a pointer,
-        # not a release, so it is skipped here.
+        # confusing error; say so first. This job runs for every v* tag, so a
+        # major tag such as v1 fails here too; push only full version tags.
         run: |
           tag="${GITHUB_REF_NAME#v}"
           version=$(node -p "require('./package.json').version")
