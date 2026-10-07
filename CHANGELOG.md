@@ -5,6 +5,10 @@ Dates are UTC and are the days npm published each version. Goldset is 0.x, so a
 minor version can break things; items that can break an existing setup are
 marked Breaking.
 
+## 0.3.1 - 2026-10-08
+
+- The Action job summary escapes eval names and error text the way the PR comment does, so markdown or HTML in a name cannot land in the summary raw (#39). The committed dist is rebuilt.
+
 ## 0.3.0 - unreleased
 
 Everything below is relative to 0.2.4, meaning npm 0.2.4 and the Action tag
