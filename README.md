@@ -58,9 +58,10 @@ npm install -D @ykstormsorg/goldset tsx
 tsx is required. It runs your `*.eval.ts` files, both locally and in the
 Action, which stops with "tsx is not installed" when it cannot find it.
 
-npm `latest` is 0.2.4, built from older code than this README describes. The
-`grounding` runner, `parseJudgeScore`, the judge cache helpers and the Action
-inputs `timeout-ms` and `pass-env` arrive with 0.3.0, the next release.
+This README describes 0.3.0, the first release with the `grounding` runner,
+`parseJudgeScore`, the judge cache helpers and the Action inputs `timeout-ms`
+and `pass-env`. If `npm view @ykstormsorg/goldset version` still says 0.2.4,
+0.3.0 is not on npm yet; see [CHANGELOG.md](CHANGELOG.md) for what differs.
 
 ## Quickstart
 
@@ -161,7 +162,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm ci
-      - uses: ykstorm/goldset@v0.2.4
+      - uses: ykstorm/goldset@v0.3.0
         with:
           eval-dir: evals
           judge-provider: none   # or openai | anthropic
@@ -172,7 +173,7 @@ jobs:
 ```
 
 To pin the exact code you run, reference the Action by commit SHA rather than by
-tag, for example `uses: ykstorm/goldset@<sha>  # v0.2.4`.
+tag, for example `uses: ykstorm/goldset@<sha>  # v0.3.0`.
 
 The Action runs every `*.eval.ts` under `eval-dir` with the `tsx` from your own
 install (`--output json`), writes a combined `goldset-results.json`, posts or

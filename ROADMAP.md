@@ -8,7 +8,7 @@
 - [x] npm package: `@ykstormsorg/goldset`
 - [x] Listed on GitHub Marketplace
 
-## v0.3: on `main`, not yet released
+## v0.3: 0.3.0, not yet published
 - [x] `grounding`: RAG faithfulness, answer supported by context
 - [x] Judge verdict cache for `llmJudge` and `grounding`
 - [x] Action inputs `timeout-ms` and `pass-env`
