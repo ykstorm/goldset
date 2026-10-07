@@ -18,9 +18,10 @@ npm install --save-dev @ykstormsorg/goldset tsx
 `tsx` is required. It runs your `*.eval.ts` files locally and in the Action,
 and the Action stops with "tsx is not installed" when your project lacks it.
 
-npm `latest` is 0.2.4. The `grounding` runner, `parseJudgeScore`, the judge
-cache helpers and the Action inputs `timeout-ms` and `pass-env` arrive with
-0.3.0.
+This guide describes 0.3.0, the first release with the `grounding` runner,
+`parseJudgeScore`, the judge cache helpers and the Action inputs `timeout-ms`
+and `pass-env`. If npm still offers 0.2.4 as `latest`, 0.3.0 is not published
+yet.
 
 ## 2. Write an eval file
 
@@ -121,7 +122,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - uses: ykstorm/goldset@v0.2.4   # the latest release tag; pin to a commit SHA in production
+      - uses: ykstorm/goldset@v0.3.0   # pin to a commit SHA in production
         with:
           eval-dir: evals
           judge-provider: none        # or openai | anthropic
