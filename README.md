@@ -17,6 +17,7 @@ merge only when branch protection lists it as a required status check.
 - [Quickstart](#quickstart)
 - [Four runners](#four-runners)
 - [GitHub Action](#github-action)
+- [Limits](#limits)
 - [API reference](docs/API.md)
 - [Architecture](docs/architecture.md)
 - [Setup guide](docs/SETUP.md)
@@ -208,6 +209,16 @@ Outputs: `results-path`, `passed`, `failed`, `total`, `all-passed`.
 | Grounding | `grounding(cases, { llm, judge })` | Answer makes claims the provided context does not support (new in 0.3.0) |
 
 See the full [API reference](docs/API.md).
+
+## Limits
+
+The golden runner measures spelling, not meaning. "You can get a refund."
+against "You cannot get a refund." scores 0.875, reported as 0.88, so it passes
+a 0.85 threshold although the answer flipped. Use the `llmJudge` runner for any
+case where a negation or a changed fact matters. There is no `goldset` command:
+you run eval files with tsx, and the Action runs them in CI. The Action fails
+the check rather than blocking the merge; a merge is blocked only when branch
+protection makes that check required.
 
 ## Performance
 
