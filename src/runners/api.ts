@@ -109,39 +109,51 @@ export async function goldenDataset(
   cases: GoldenCase[],
   config: GoldenConfig
 ): Promise<GoldenResult> {
-  const threshold = config.threshold ?? 0.8;
-  if (threshold < 0 || threshold > 1) {
-    throw new Error('goldenDataset: threshold must be between 0 and 1');
-  }
+  const threshold = goldenThreshold(config);
   const normalize = config.normalize ?? ((s: string) => s);
 
   const results: GoldenCaseResult[] = [];
   for (const tc of cases) {
-    const output = await Promise.resolve(config.llm(tc.input));
-    const similarity = round2(
-      calculateSimilarity(normalize(tc.expected), normalize(output))
-    );
-    const passed = similarity >= threshold;
-    if (config.verbose) {
-      console.error(`[goldenDataset] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (similarity ${similarity})`);
-    }
-    results.push({ id: tc.id, passed, similarity, output, threshold });
+    results.push(await scoreGoldenCase(tc, config, normalize, threshold));
   }
+  return { runner: 'goldenDataset', cases: results, summary: summarizeGolden(results) };
+}
 
+/** The configured threshold, 0.8 by default; anything outside [0, 1] is an error. */
+function goldenThreshold(config: GoldenConfig): number {
+  const threshold = config.threshold ?? 0.8;
+  if (threshold < 0 || threshold > 1) {
+    throw new Error('goldenDataset: threshold must be between 0 and 1');
+  }
+  return threshold;
+}
+
+/** Run one case through the model and compare its output with the expected answer. */
+async function scoreGoldenCase(
+  tc: GoldenCase,
+  config: GoldenConfig,
+  normalize: (s: string) => string,
+  threshold: number
+): Promise<GoldenCaseResult> {
+  const output = await Promise.resolve(config.llm(tc.input));
+  const similarity = round2(
+    calculateSimilarity(normalize(tc.expected), normalize(output))
+  );
+  const passed = similarity >= threshold;
+  if (config.verbose) {
+    console.error(`[goldenDataset] ${passed ? 'PASS' : 'FAIL'} ${tc.id} (similarity ${similarity})`);
+  }
+  return { id: tc.id, passed, similarity, output, threshold };
+}
+
+function summarizeGolden(results: GoldenCaseResult[]): GoldenResult['summary'] {
   const passed = results.filter((r) => r.passed).length;
-  const avgSimilarity = results.length
-    ? round2(results.reduce((s, r) => s + r.similarity, 0) / results.length)
-    : 0;
-
+  const total = results.length;
   return {
-    runner: 'goldenDataset',
-    cases: results,
-    summary: {
-      passed,
-      failed: results.length - passed,
-      passRate: results.length ? round2(passed / results.length) : 0,
-      avgSimilarity,
-    },
+    passed,
+    failed: total - passed,
+    passRate: total ? round2(passed / total) : 0,
+    avgSimilarity: total ? round2(results.reduce((s, r) => s + r.similarity, 0) / total) : 0,
   };
 }
 
@@ -424,28 +436,43 @@ function mergeSameRunner(a: AnyRunnerResult, b: AnyRunnerResult): AnyRunnerResul
 export function toEvalResult(
   ...args: (AnyRunnerResult | ToEvalResultOptions)[]
 ): EvalResult {
-  let stable = false;
-  const last = args[args.length - 1];
-  if (last && !isRunnerResult(last)) {
-    stable = last.stable ?? false;
-    args = args.slice(0, -1);
-  }
-  const runnerResults = args as AnyRunnerResult[];
+  const { runnerResults, stable } = splitOptions(args);
+  const runners = combineByRunner(runnerResults);
+  const failed = runnerResults.reduce((n, r) => n + r.summary.failed, 0);
+  return {
+    version: 1,
+    ...runMetadata(stable),
+    runners,
+    passed: failed === 0,
+  };
+}
 
+/** Separate a trailing `{ stable }` options argument from the runner results. */
+function splitOptions(
+  args: (AnyRunnerResult | ToEvalResultOptions)[]
+): { runnerResults: AnyRunnerResult[]; stable: boolean } {
+  const last = args[args.length - 1];
+  if (!last || isRunnerResult(last)) return { runnerResults: args as AnyRunnerResult[], stable: false };
+  return { runnerResults: args.slice(0, -1) as AnyRunnerResult[], stable: last.stable ?? false };
+}
+
+/** Key the results by runner; two results from the same runner are merged into one. */
+function combineByRunner(runnerResults: AnyRunnerResult[]): EvalResult['runners'] {
   const runners: EvalResult['runners'] = {};
-  let failed = 0;
   for (const r of runnerResults) {
     const existing = runners[r.runner] as AnyRunnerResult | undefined;
     runners[r.runner] = (existing ? mergeSameRunner(existing, r) : r) as never;
-    failed += r.summary.failed;
   }
+  return runners;
+}
+
+/** When and where the run happened, or empty strings for a stable result. */
+function runMetadata(stable: boolean): Pick<EvalResult, 'timestamp' | 'commit' | 'branch'> {
+  if (stable) return { timestamp: '', commit: '', branch: '' };
   return {
-    version: 1,
-    timestamp: stable ? '' : new Date().toISOString(),
-    commit: stable ? '' : process.env.GITHUB_SHA ?? '',
-    branch: stable ? '' : process.env.GITHUB_REF_NAME ?? '',
-    runners,
-    passed: failed === 0,
+    timestamp: new Date().toISOString(),
+    commit: process.env.GITHUB_SHA ?? '',
+    branch: process.env.GITHUB_REF_NAME ?? '',
   };
 }
 

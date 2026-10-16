@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { structural } from '../src/index';
+import { structural, applyAssertions } from '../src/index';
 import type { StructuralCase, Assertion } from '../src/index';
 
 const run = (output: string, assertions: Assertion[], id = 'c') =>
@@ -180,5 +180,88 @@ describe('structural', () => {
     expect(r.cases.map((c) => c.passed)).toEqual([true, false, true]);
     expect(r.summary.passed).toBe(2);
     expect(r.summary.failed).toBe(1);
+  });
+});
+
+describe('applyAssertions: every assertion type and missing field', () => {
+  const failure = (output: string, assertion: unknown) =>
+    applyAssertions(output, [assertion as Assertion]);
+
+  it.each([
+    ['a json-schema assertion with no schema', { type: 'json-schema' }, { type: 'json-schema', reason: 'no schema provided' }],
+    ['a regex assertion with no pattern', { type: 'regex' }, { type: 'regex', reason: 'no pattern provided' }],
+    ['a contains assertion with no substring', { type: 'contains' }, { type: 'contains', reason: 'no substring provided' }],
+    ['a tool-call-shape assertion with no toolName', { type: 'tool-call-shape' }, { type: 'tool-call-shape', reason: 'no toolName provided' }],
+    ['a tool-call-shape assertion with an empty toolName', { type: 'tool-call-shape', toolName: '' }, { type: 'tool-call-shape', reason: 'no toolName provided' }],
+    ['an unknown assertion type', { type: 'xml' }, { type: 'xml', reason: 'unknown assertion type' }],
+    ['a type that names an Object.prototype method', { type: 'toString' }, { type: 'toString', reason: 'unknown assertion type' }],
+  ])('reports %s', (_name, assertion, expected) => {
+    expect(failure('{}', assertion)).toEqual(expected);
+  });
+
+  it('accepts an empty substring, which every output contains', () => {
+    expect(failure('anything', { type: 'contains', substring: '' })).toBeNull();
+  });
+
+  it('reports the missing substring by name', () => {
+    expect(failure('hello', { type: 'contains', substring: 'bye' })).toEqual({
+      type: 'contains',
+      reason: 'output did not contain "bye"',
+    });
+  });
+
+  it('stops at the first failing assertion', () => {
+    expect(
+      applyAssertions('hello', [
+        { type: 'contains', substring: 'hell' },
+        { type: 'regex', pattern: '^bye' },
+        { type: 'contains', substring: 'nope' },
+      ])
+    ).toEqual({ type: 'regex', reason: expect.any(String) });
+  });
+});
+
+describe('json-schema type names', () => {
+  const topLevel = (type: string, output: string) =>
+    applyAssertions(output, [{ type: 'json-schema', schema: { type } }]);
+  const asProperty = (type: string, value: unknown) =>
+    applyAssertions(JSON.stringify({ v: value }), [{ type: 'json-schema', schema: { properties: { v: { type } } } }]);
+
+  it.each([
+    ['string', '"hi"', '1'],
+    ['number', '1.5', '"1"'],
+    ['integer', '2', '2.5'],
+    ['boolean', 'true', '0'],
+    ['null', 'null', '0'],
+    ['array', '[1]', '{}'],
+  ])('checks a top-level %s', (type, match, mismatch) => {
+    expect(topLevel(type, match)).toBeNull();
+    expect(topLevel(type, mismatch)).toEqual({ type: 'json-schema', reason: `output is not of type ${type}` });
+  });
+
+  it.each([
+    ['an object', '{}', null],
+    ['an array', '[]', 'output is not a JSON object'],
+    ['null', 'null', 'output is not a JSON object'],
+    ['a string', '"x"', 'output is not a JSON object'],
+  ])('checks a top-level object against %s', (_name, output, reason) => {
+    expect(topLevel('object', output)).toEqual(reason === null ? null : { type: 'json-schema', reason });
+  });
+
+  it.each([
+    ['string', 'a', 1],
+    ['number', 1, 'a'],
+    ['integer', 3, 3.5],
+    ['boolean', false, 'false'],
+    ['array', [], {}],
+    ['object', {}, []],
+  ])('checks a %s property', (type, match, mismatch) => {
+    expect(asProperty(type, match)).toBeNull();
+    expect(asProperty(type, mismatch)).toEqual({ type: 'json-schema', reason: `property "v" is not of type ${type}` });
+  });
+
+  it.each(['date', 'toString', 'constructor', 'hasOwnProperty'])('lets any value through an unknown type name %s', (type) => {
+    expect(topLevel(type, '1')).toBeNull();
+    expect(asProperty(type, 'x')).toBeNull();
   });
 });

@@ -85,25 +85,21 @@ function calculateSimilarity(str1, str2) {
 
 // src/runners/structural.ts
 var import_node_vm = require("vm");
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var JSON_TYPE_CHECKS = /* @__PURE__ */ new Map([
+  ["string", (v) => typeof v === "string"],
+  ["number", (v) => typeof v === "number"],
+  ["integer", (v) => Number.isInteger(v)],
+  ["boolean", (v) => typeof v === "boolean"],
+  ["null", (v) => v === null],
+  ["array", (v) => Array.isArray(v)],
+  ["object", isJsonObject]
+]);
 function jsonTypeMatches(value, type) {
-  switch (type) {
-    case "string":
-      return typeof value === "string";
-    case "number":
-      return typeof value === "number";
-    case "integer":
-      return Number.isInteger(value);
-    case "boolean":
-      return typeof value === "boolean";
-    case "null":
-      return value === null;
-    case "array":
-      return Array.isArray(value);
-    case "object":
-      return typeof value === "object" && value !== null && !Array.isArray(value);
-    default:
-      return true;
-  }
+  const check = JSON_TYPE_CHECKS.get(type);
+  return check ? check(value) : true;
 }
 function describesObject(schema) {
   if (schema.type !== void 0) return schema.type === "object";
@@ -214,22 +210,36 @@ function validateToolCallShape(output, toolName, argCount) {
 function applyAssertion(output, assertion) {
   switch (assertion.type) {
     case "json-schema":
-      return assertion.schema ? validateJsonSchema(output, assertion.schema) : { type: "json-schema", reason: "no schema provided" };
+      return applyJsonSchema(output, assertion);
     case "regex":
-      return assertion.pattern !== void 0 ? validateRegex(output, assertion.pattern, assertion.flags) : { type: "regex", reason: "no pattern provided" };
+      return applyRegex(output, assertion);
     case "contains":
-      if (assertion.substring === void 0) {
-        return { type: "contains", reason: "no substring provided" };
-      }
-      return output.includes(assertion.substring) ? null : { type: "contains", reason: `output did not contain "${assertion.substring}"` };
+      return applyContains(output, assertion);
     case "tool-call-shape":
-      return assertion.toolName ? validateToolCallShape(output, assertion.toolName, assertion.argCount) : { type: "tool-call-shape", reason: "no toolName provided" };
+      return applyToolCallShape(output, assertion);
     default:
       return {
         type: assertion.type,
         reason: "unknown assertion type"
       };
   }
+}
+function applyJsonSchema(output, assertion) {
+  if (!assertion.schema) return { type: "json-schema", reason: "no schema provided" };
+  return validateJsonSchema(output, assertion.schema);
+}
+function applyRegex(output, assertion) {
+  if (assertion.pattern === void 0) return { type: "regex", reason: "no pattern provided" };
+  return validateRegex(output, assertion.pattern, assertion.flags);
+}
+function applyContains(output, assertion) {
+  if (assertion.substring === void 0) return { type: "contains", reason: "no substring provided" };
+  if (output.includes(assertion.substring)) return null;
+  return { type: "contains", reason: `output did not contain "${assertion.substring}"` };
+}
+function applyToolCallShape(output, assertion) {
+  if (!assertion.toolName) return { type: "tool-call-shape", reason: "no toolName provided" };
+  return validateToolCallShape(output, assertion.toolName, assertion.argCount);
 }
 function applyAssertions(output, assertions) {
   for (const assertion of assertions) {
@@ -344,34 +354,40 @@ function parseJudgeReason(text) {
   }
 }
 async function goldenDataset(cases, config) {
+  const threshold = goldenThreshold(config);
+  const normalize = config.normalize ?? ((s) => s);
+  const results = [];
+  for (const tc of cases) {
+    results.push(await scoreGoldenCase(tc, config, normalize, threshold));
+  }
+  return { runner: "goldenDataset", cases: results, summary: summarizeGolden(results) };
+}
+function goldenThreshold(config) {
   const threshold = config.threshold ?? 0.8;
   if (threshold < 0 || threshold > 1) {
     throw new Error("goldenDataset: threshold must be between 0 and 1");
   }
-  const normalize = config.normalize ?? ((s) => s);
-  const results = [];
-  for (const tc of cases) {
-    const output = await Promise.resolve(config.llm(tc.input));
-    const similarity = round2(
-      calculateSimilarity(normalize(tc.expected), normalize(output))
-    );
-    const passed2 = similarity >= threshold;
-    if (config.verbose) {
-      console.error(`[goldenDataset] ${passed2 ? "PASS" : "FAIL"} ${tc.id} (similarity ${similarity})`);
-    }
-    results.push({ id: tc.id, passed: passed2, similarity, output, threshold });
+  return threshold;
+}
+async function scoreGoldenCase(tc, config, normalize, threshold) {
+  const output = await Promise.resolve(config.llm(tc.input));
+  const similarity = round2(
+    calculateSimilarity(normalize(tc.expected), normalize(output))
+  );
+  const passed = similarity >= threshold;
+  if (config.verbose) {
+    console.error(`[goldenDataset] ${passed ? "PASS" : "FAIL"} ${tc.id} (similarity ${similarity})`);
   }
+  return { id: tc.id, passed, similarity, output, threshold };
+}
+function summarizeGolden(results) {
   const passed = results.filter((r) => r.passed).length;
-  const avgSimilarity = results.length ? round2(results.reduce((s, r) => s + r.similarity, 0) / results.length) : 0;
+  const total = results.length;
   return {
-    runner: "goldenDataset",
-    cases: results,
-    summary: {
-      passed,
-      failed: results.length - passed,
-      passRate: results.length ? round2(passed / results.length) : 0,
-      avgSimilarity
-    }
+    passed,
+    failed: total - passed,
+    passRate: total ? round2(passed / total) : 0,
+    avgSimilarity: total ? round2(results.reduce((s, r) => s + r.similarity, 0) / total) : 0
   };
 }
 async function scoreWithJudge(runner, cases, config, rubricFor, buildPrompt) {
@@ -490,27 +506,35 @@ function mergeSameRunner(a, b) {
   };
 }
 function toEvalResult(...args) {
-  let stable = false;
+  const { runnerResults, stable } = splitOptions(args);
+  const runners = combineByRunner(runnerResults);
+  const failed = runnerResults.reduce((n, r) => n + r.summary.failed, 0);
+  return {
+    version: 1,
+    ...runMetadata(stable),
+    runners,
+    passed: failed === 0
+  };
+}
+function splitOptions(args) {
   const last = args[args.length - 1];
-  if (last && !isRunnerResult(last)) {
-    stable = last.stable ?? false;
-    args = args.slice(0, -1);
-  }
-  const runnerResults = args;
+  if (!last || isRunnerResult(last)) return { runnerResults: args, stable: false };
+  return { runnerResults: args.slice(0, -1), stable: last.stable ?? false };
+}
+function combineByRunner(runnerResults) {
   const runners = {};
-  let failed = 0;
   for (const r of runnerResults) {
     const existing = runners[r.runner];
     runners[r.runner] = existing ? mergeSameRunner(existing, r) : r;
-    failed += r.summary.failed;
   }
+  return runners;
+}
+function runMetadata(stable) {
+  if (stable) return { timestamp: "", commit: "", branch: "" };
   return {
-    version: 1,
-    timestamp: stable ? "" : (/* @__PURE__ */ new Date()).toISOString(),
-    commit: stable ? "" : process.env.GITHUB_SHA ?? "",
-    branch: stable ? "" : process.env.GITHUB_REF_NAME ?? "",
-    runners,
-    passed: failed === 0
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    commit: process.env.GITHUB_SHA ?? "",
+    branch: process.env.GITHUB_REF_NAME ?? ""
   };
 }
 async function runEval(...runnerResults) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { goldenDataset, toEvalResult, structural, llmJudge, grounding } from '../src/index';
 
 describe('goldenDataset', () => {
@@ -157,5 +157,146 @@ describe('grounding', () => {
       judge,
     });
     expect(judge.mock.calls[0][0]).toContain('SECRET_CONTEXT_MARKER');
+  });
+});
+
+describe('goldenDataset edges', () => {
+  const one = [{ id: 'g1', input: 'q', expected: 'same answer' }];
+
+  it('summarises an empty case list as zeros', async () => {
+    const result = await goldenDataset([], { llm: vi.fn() });
+    expect(result).toEqual({
+      runner: 'goldenDataset',
+      cases: [],
+      summary: { passed: 0, failed: 0, passRate: 0, avgSimilarity: 0 },
+    });
+  });
+
+  it('defaults the threshold to 0.8 and records it on each case', async () => {
+    const result = await goldenDataset(one, { llm: vi.fn().mockResolvedValue('same answer') });
+    expect(result.cases[0].threshold).toBe(0.8);
+  });
+
+  it.each([0, 1])('accepts the boundary threshold %s', async (threshold) => {
+    const result = await goldenDataset(one, { llm: vi.fn().mockResolvedValue('same answer'), threshold });
+    expect(result.cases[0].threshold).toBe(threshold);
+  });
+
+  it.each([-0.01, 1.01])('rejects the threshold %s with a message', async (threshold) => {
+    await expect(goldenDataset(one, { llm: vi.fn(), threshold })).rejects.toThrow(
+      'goldenDataset: threshold must be between 0 and 1'
+    );
+  });
+
+  it('checks the threshold before calling the model', async () => {
+    const llm = vi.fn();
+    await expect(goldenDataset(one, { llm, threshold: 2 })).rejects.toThrow();
+    expect(llm).not.toHaveBeenCalled();
+  });
+
+  it('accepts a synchronous model function', async () => {
+    const result = await goldenDataset(one, { llm: () => 'same answer' });
+    expect(result.cases[0].passed).toBe(true);
+  });
+
+  it('logs one PASS or FAIL line per case to stderr when verbose', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const result = await goldenDataset(
+        [
+          { id: 'ok', input: 'q1', expected: 'same answer' },
+          { id: 'off', input: 'q2', expected: 'same answer' },
+        ],
+        { llm: vi.fn().mockResolvedValueOnce('same answer').mockResolvedValueOnce('zzz'), verbose: true }
+      );
+      expect(log.mock.calls.map((c) => c[0])).toEqual([
+        '[goldenDataset] PASS ok (similarity 1)',
+        `[goldenDataset] FAIL off (similarity ${result.cases[1].similarity})`,
+      ]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('logs nothing when not verbose', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await goldenDataset(one, { llm: vi.fn().mockResolvedValue('zzz') });
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('rounds similarity, pass rate and average to two places', async () => {
+    const result = await goldenDataset(
+      [
+        { id: 'a', input: 'q', expected: 'abc' },
+        { id: 'b', input: 'q', expected: 'abc' },
+        { id: 'c', input: 'q', expected: 'abc' },
+      ],
+      { llm: vi.fn().mockResolvedValueOnce('abc').mockResolvedValueOnce('abd').mockResolvedValueOnce('xyz'), threshold: 0.5 }
+    );
+    expect(result.cases.map((c) => c.similarity)).toEqual([1, 0.67, 0]);
+    expect(result.summary).toEqual({ passed: 2, failed: 1, passRate: 0.67, avgSimilarity: 0.56 });
+  });
+});
+
+describe('toEvalResult options and metadata', () => {
+  const golden = () =>
+    goldenDataset([{ id: 'g', input: 'x', expected: 'x' }], { llm: vi.fn().mockResolvedValue('x') });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('fills the timestamp, commit and branch from the run when not stable', async () => {
+    vi.stubEnv('GITHUB_SHA', 'abc123');
+    vi.stubEnv('GITHUB_REF_NAME', 'feature/x');
+    const r = toEvalResult(await golden());
+    expect(new Date(r.timestamp).toISOString()).toBe(r.timestamp);
+    expect(r.commit).toBe('abc123');
+    expect(r.branch).toBe('feature/x');
+  });
+
+  it('uses empty strings when the commit and branch are not in the environment', async () => {
+    vi.stubEnv('GITHUB_SHA', undefined);
+    vi.stubEnv('GITHUB_REF_NAME', undefined);
+    const r = toEvalResult(await golden());
+    expect(r.commit).toBe('');
+    expect(r.branch).toBe('');
+    expect(r.timestamp).not.toBe('');
+  });
+
+  it.each([
+    ['an empty options object', {}],
+    ['stable: false', { stable: false }],
+  ])('treats %s as not stable', async (_name, options) => {
+    vi.stubEnv('GITHUB_SHA', 'abc123');
+    const r = toEvalResult(await golden(), options);
+    expect(r.timestamp).not.toBe('');
+    expect(r.commit).toBe('abc123');
+    expect(r.runners.goldenDataset).toBeDefined();
+  });
+
+  it('accepts options with no runner results', () => {
+    const r = toEvalResult({ stable: true });
+    expect(r).toEqual({ version: 1, timestamp: '', commit: '', branch: '', runners: {}, passed: true });
+  });
+
+  it('accepts no arguments at all', () => {
+    const r = toEvalResult();
+    expect(r.runners).toEqual({});
+    expect(r.passed).toBe(true);
+  });
+
+  it('keeps the field order of the JSON it emits', async () => {
+    const r = toEvalResult(await golden(), { stable: true });
+    expect(Object.keys(r)).toEqual(['version', 'timestamp', 'commit', 'branch', 'runners', 'passed']);
+  });
+
+  it('fails the result when any runner has a failure', async () => {
+    const bad = await goldenDataset([{ id: 'b', input: 'x', expected: 'x' }], { llm: vi.fn().mockResolvedValue('nothing alike') });
+    expect(toEvalResult(await golden(), bad, { stable: true }).passed).toBe(false);
   });
 });

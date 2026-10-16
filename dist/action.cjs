@@ -24701,37 +24701,43 @@ function writeResults(results) {
   setOutput("all-passed", failed === 0 ? "true" : "false");
   return { total, passed, failed };
 }
+function reportSkippedComment(inputs, hasPullRequest) {
+  if (!inputs.commentOnPR) return;
+  if (!hasPullRequest) {
+    info("[goldset] not a pull_request event, skipping PR comment");
+  } else if (!inputs.token) {
+    warning("[goldset] GITHUB_TOKEN not available, skipping PR comment");
+  }
+}
+async function baseResultsFor(octokit, owner, repo, pr) {
+  const baseRef = pr.base?.ref;
+  return baseRef ? fetchBaseResults(octokit, owner, repo, baseRef) : void 0;
+}
+async function commentOnPullRequest(octokit, target, results, baseResults) {
+  const api = {
+    listComments: (a) => octokit.rest.issues.listComments(a),
+    createComment: (a) => octokit.rest.issues.createComment(a),
+    updateComment: (a) => octokit.rest.issues.updateComment(a)
+  };
+  try {
+    const action = await postComment(api, target, buildCommentBody(results, baseResults));
+    info(`[goldset] PR comment ${action}`);
+  } catch (err) {
+    warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 async function computeRegressionAndComment(results, inputs) {
   const pr = context2.payload.pull_request;
   if (!inputs.token || !pr) {
-    if (inputs.commentOnPR && !pr) {
-      info("[goldset] not a pull_request event, skipping PR comment");
-    } else if (inputs.commentOnPR && !inputs.token) {
-      warning("[goldset] GITHUB_TOKEN not available, skipping PR comment");
-    }
+    reportSkippedComment(inputs, Boolean(pr));
     return false;
   }
   const octokit = getOctokit(inputs.token);
   const { owner, repo } = context2.repo;
-  const baseRef = pr.base?.ref;
-  const baseResults = baseRef ? await fetchBaseResults(octokit, owner, repo, baseRef) : void 0;
+  const baseResults = await baseResultsFor(octokit, owner, repo, pr);
   const regressed = isRegression(results, baseResults);
   if (inputs.commentOnPR) {
-    const api = {
-      listComments: (a) => octokit.rest.issues.listComments(a),
-      createComment: (a) => octokit.rest.issues.createComment(a),
-      updateComment: (a) => octokit.rest.issues.updateComment(a)
-    };
-    try {
-      const action = await postComment(
-        api,
-        { owner, repo, issueNumber: pr.number },
-        buildCommentBody(results, baseResults)
-      );
-      info(`[goldset] PR comment ${action}`);
-    } catch (err) {
-      warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await commentOnPullRequest(octokit, { owner, repo, issueNumber: pr.number }, results, baseResults);
   }
   return regressed;
 }
