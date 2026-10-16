@@ -19,18 +19,28 @@ export interface AssertionFailure {
   reason: string;
 }
 
-/** Does `value` have the JSON Schema `type`? Only the primitive names are known. */
+function isJsonObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The JSON Schema type names and how to recognise a value of each. A Map, so
+ * a name such as `toString` is not found on Object.prototype.
+ */
+const JSON_TYPE_CHECKS = new Map<string, (value: unknown) => boolean>([
+  ['string', (v) => typeof v === 'string'],
+  ['number', (v) => typeof v === 'number'],
+  ['integer', (v) => Number.isInteger(v)],
+  ['boolean', (v) => typeof v === 'boolean'],
+  ['null', (v) => v === null],
+  ['array', (v) => Array.isArray(v)],
+  ['object', isJsonObject],
+]);
+
+/** Does `value` have the JSON Schema `type`? Only the names above are known; any other name matches. */
 function jsonTypeMatches(value: unknown, type: string): boolean {
-  switch (type) {
-    case 'string': return typeof value === 'string';
-    case 'number': return typeof value === 'number';
-    case 'integer': return Number.isInteger(value);
-    case 'boolean': return typeof value === 'boolean';
-    case 'null': return value === null;
-    case 'array': return Array.isArray(value);
-    case 'object': return typeof value === 'object' && value !== null && !Array.isArray(value);
-    default: return true;
-  }
+  const check = JSON_TYPE_CHECKS.get(type);
+  return check ? check(value) : true;
 }
 
 /**
@@ -219,30 +229,46 @@ function validateToolCallShape(
 function applyAssertion(output: string, assertion: Assertion): AssertionFailure | null {
   switch (assertion.type) {
     case 'json-schema':
-      return assertion.schema
-        ? validateJsonSchema(output, assertion.schema)
-        : { type: 'json-schema', reason: 'no schema provided' };
+      return applyJsonSchema(output, assertion);
     case 'regex':
-      return assertion.pattern !== undefined
-        ? validateRegex(output, assertion.pattern, assertion.flags)
-        : { type: 'regex', reason: 'no pattern provided' };
+      return applyRegex(output, assertion);
     case 'contains':
-      if (assertion.substring === undefined) {
-        return { type: 'contains', reason: 'no substring provided' };
-      }
-      return output.includes(assertion.substring)
-        ? null
-        : { type: 'contains', reason: `output did not contain "${assertion.substring}"` };
+      return applyContains(output, assertion);
     case 'tool-call-shape':
-      return assertion.toolName
-        ? validateToolCallShape(output, assertion.toolName, assertion.argCount)
-        : { type: 'tool-call-shape', reason: 'no toolName provided' };
+      return applyToolCallShape(output, assertion);
     default:
       return {
         type: (assertion as { type: AssertionType }).type,
         reason: 'unknown assertion type',
       };
   }
+}
+
+type AssertionOf<T extends AssertionType> = Extract<Assertion, { type: T }>;
+
+// Each check below first rejects an assertion that is missing its argument:
+// an eval file can pass an object its types do not describe, so the field can
+// be absent at run time.
+
+function applyJsonSchema(output: string, assertion: AssertionOf<'json-schema'>): AssertionFailure | null {
+  if (!assertion.schema) return { type: 'json-schema', reason: 'no schema provided' };
+  return validateJsonSchema(output, assertion.schema);
+}
+
+function applyRegex(output: string, assertion: AssertionOf<'regex'>): AssertionFailure | null {
+  if (assertion.pattern === undefined) return { type: 'regex', reason: 'no pattern provided' };
+  return validateRegex(output, assertion.pattern, assertion.flags);
+}
+
+function applyContains(output: string, assertion: AssertionOf<'contains'>): AssertionFailure | null {
+  if (assertion.substring === undefined) return { type: 'contains', reason: 'no substring provided' };
+  if (output.includes(assertion.substring)) return null;
+  return { type: 'contains', reason: `output did not contain "${assertion.substring}"` };
+}
+
+function applyToolCallShape(output: string, assertion: AssertionOf<'tool-call-shape'>): AssertionFailure | null {
+  if (!assertion.toolName) return { type: 'tool-call-shape', reason: 'no toolName provided' };
+  return validateToolCallShape(output, assertion.toolName, assertion.argCount);
 }
 
 /**

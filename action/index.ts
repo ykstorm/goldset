@@ -105,6 +105,50 @@ function writeResults(results: EvalFileResult[]): { total: number; passed: numbe
   return { total, passed, failed };
 }
 
+type Octokit = ReturnType<typeof github.getOctokit>;
+type PullRequest = NonNullable<typeof github.context.payload.pull_request>;
+
+/** Say why no PR comment is posted, when comments are on; called only when the PR or the token is missing. */
+function reportSkippedComment(inputs: Inputs, hasPullRequest: boolean): void {
+  if (!inputs.commentOnPR) return;
+  if (!hasPullRequest) {
+    core.info('[goldset] not a pull_request event, skipping PR comment');
+  } else if (!inputs.token) {
+    core.warning('[goldset] GITHUB_TOKEN not available, skipping PR comment');
+  }
+}
+
+/** The base branch's committed results, or undefined when the PR names no base ref. */
+async function baseResultsFor(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  pr: PullRequest
+): Promise<EvalFileResult[] | undefined> {
+  const baseRef = (pr.base as { ref?: string } | undefined)?.ref;
+  return baseRef ? fetchBaseResults(octokit, owner, repo, baseRef) : undefined;
+}
+
+/** Post or update the results comment. A fork's token cannot write comments; the results and the gate still stand. */
+async function commentOnPullRequest(
+  octokit: Octokit,
+  target: { owner: string; repo: string; issueNumber: number },
+  results: EvalFileResult[],
+  baseResults: EvalFileResult[] | undefined
+): Promise<void> {
+  const api: CommentApi = {
+    listComments: (a) => octokit.rest.issues.listComments(a),
+    createComment: (a) => octokit.rest.issues.createComment(a),
+    updateComment: (a) => octokit.rest.issues.updateComment(a),
+  };
+  try {
+    const action = await postComment(api, target, buildCommentBody(results, baseResults));
+    core.info(`[goldset] PR comment ${action}`);
+  } catch (err) {
+    core.warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Fetch the base results, compute regression, and (optionally) post the comment. */
 async function computeRegressionAndComment(
   results: EvalFileResult[],
@@ -112,37 +156,17 @@ async function computeRegressionAndComment(
 ): Promise<boolean> {
   const pr = github.context.payload.pull_request;
   if (!inputs.token || !pr) {
-    if (inputs.commentOnPR && !pr) {
-      core.info('[goldset] not a pull_request event, skipping PR comment');
-    } else if (inputs.commentOnPR && !inputs.token) {
-      core.warning('[goldset] GITHUB_TOKEN not available, skipping PR comment');
-    }
+    reportSkippedComment(inputs, Boolean(pr));
     return false;
   }
 
   const octokit = github.getOctokit(inputs.token);
   const { owner, repo } = github.context.repo;
-  const baseRef = (pr.base as { ref?: string } | undefined)?.ref;
-  const baseResults = baseRef ? await fetchBaseResults(octokit, owner, repo, baseRef) : undefined;
+  const baseResults = await baseResultsFor(octokit, owner, repo, pr);
   const regressed = isRegression(results, baseResults);
 
   if (inputs.commentOnPR) {
-    const api: CommentApi = {
-      listComments: (a) => octokit.rest.issues.listComments(a),
-      createComment: (a) => octokit.rest.issues.createComment(a),
-      updateComment: (a) => octokit.rest.issues.updateComment(a),
-    };
-    // A fork's token cannot write comments; the results and the gate still stand.
-    try {
-      const action = await postComment(
-        api,
-        { owner, repo, issueNumber: pr.number },
-        buildCommentBody(results, baseResults)
-      );
-      core.info(`[goldset] PR comment ${action}`);
-    } catch (err) {
-      core.warning(`[goldset] could not post the PR comment: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await commentOnPullRequest(octokit, { owner, repo, issueNumber: pr.number }, results, baseResults);
   }
   return regressed;
 }
